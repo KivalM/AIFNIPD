@@ -38,6 +38,8 @@ def ego_B() -> np.ndarray:
     # B[s_curr, s_next, a]
     B = np.ones((len(ALL_STATE_IDXS), len(ALL_STATE_IDXS), 2))
     B = B / B.sum(axis=1, keepdims=True)
+
+  
     return B
 
 
@@ -46,7 +48,7 @@ def ego_C() -> np.ndarray:
     C_vec = np.zeros(len(ALL_STATE_IDXS))
     C_vec[STATE_CC_IDX] = 3
     C_vec[STATE_CD_IDX] = 0
-    C_vec[STATE_DC_IDX] = 4
+    C_vec[STATE_DC_IDX] = 5
     C_vec[STATE_DD_IDX] = 1
     return C_vec
 
@@ -63,15 +65,20 @@ def create_agent(
     lr_pB: float = 100,
     learn_A: bool = True,
     noise: float = 0.2,
+    B_matrix: np.ndarray | None = None,
+    p_B_matrix: np.ndarray | None = None,
 ) -> Agent:
     A_matrix = ego_A(noise=noise)
-    B_matrix = ego_B()
+
+    B_matrix = ego_B() if B_matrix is None else B_matrix
+    
     C_matrix = ego_C()
     D_matrix = ego_D()
     pA_matrix = utils.dirichlet_like(A_matrix, scale=1e-32)
     pB_matrix = utils.dirichlet_like(B_matrix, scale=1e-32)
     pD_matrix = utils.dirichlet_like(D_matrix, scale=1e-32)
 
+    p_B_matrix = utils.dirichlet_like(B_matrix, scale=1e-32) if p_B_matrix is None else p_B_matrix
     agent = Agent(
         A=A_matrix,
         B=B_matrix,
@@ -111,6 +118,8 @@ class AIFJointAgent(JointWrapper):
         learn_A: bool = False,
         aware_of_noise: bool = False,
         lr: float | None = None,
+        B_matrix: np.ndarray | None = None,
+        p_B_matrix: np.ndarray | None = None,
     ) -> None:
         super().__init__()
         self.policy_len = policy_len
@@ -125,7 +134,8 @@ class AIFJointAgent(JointWrapper):
         self.noise = 0.0
         # noise from match attributes is not available yet; set during first step if requested
         self.agent: Optional[Agent] = None
-
+        self.B_matrix = B_matrix
+        self.p_B_matrix = p_B_matrix
     def _ensure_agent(self) -> None:
         if self.agent is not None:
             return
@@ -137,6 +147,8 @@ class AIFJointAgent(JointWrapper):
             lr_pB=self.lr_pB,
             learn_A=self.learn_A,
             noise=self.noise,
+            B_matrix=self.B_matrix,
+            p_B_matrix=self.p_B_matrix,
         )
 
     def step(self, state: Tuple[Optional[Action], Optional[Action]]) -> Action:
@@ -170,7 +182,7 @@ class AIFJointAgent(JointWrapper):
 
         return Action.C if act_idx == ACTION_C_IDX else Action.D
 
-    def reset(self) -> None:  # type: ignore[override]
+    def reset(self) -> None:  
         if self.agent is not None:
             self.agent.reset()
         super().reset()
@@ -223,7 +235,7 @@ class StdLearnAIFNoiseAware(AIFJointAgent):
 class CustomAIF(AIFJointAgent):
     name = "CustomAIF"
     def __init__(self):
-        super().__init__(policy_len=2, lr_pA=1, lr_pB=1, learn_A=False, aware_of_noise=True, lr=None)
+        super().__init__(policy_len=10, lr_pA=1, lr_pB=1, learn_A=False, aware_of_noise=True, lr=None)
     
     def _ensure_agent(self) -> None:
         super()._ensure_agent()  # Create the agent first
@@ -272,16 +284,16 @@ if __name__ == "__main__":
 
     # Test 1: CustomAIF vs CustomAIF (two tit-for-tat agents)
     print("=== CustomAIF vs CustomAIF ===")
-    agent1 = CustomAIF()
-    agent2 = CustomAIF()
-    match1 = Match((agent1, agent2), turns=1000)
+    agent1 = AIFJointAgent(1, 1.25, 1.0)
+    agent2 = AIFJointAgent(1, 1.25, 1.0)
+    match1 = Match((agent1, agent2), turns=100000)
     match1.play()
     print(f"Final scores: {match1.final_score()}")
     print(f"Cooperation counts: {match1.cooperation()}")
     
     # Test 2: CustomAIF vs TitForTat (should behave similarly)
     print("\n=== CustomAIF vs TitForTat ===")
-    aif_agent = CustomAIF()
+    aif_agent = AIFJointAgent(1, 1.25, 1.0)
     tft_agent = TitForTat()
     match2 = Match((aif_agent, tft_agent), turns=1000)
     match2.play()
@@ -289,7 +301,7 @@ if __name__ == "__main__":
     print(f"Cooperation counts: {match2.cooperation()}")
     
     print("\n=== CustomAIF vs Defector ===")
-    aif_agent = CustomAIF()
+    aif_agent = AIFJointAgent(3, 1.0, 1.0)
     tft_agent = axelrod.Defector()
     match2 = Match((aif_agent, tft_agent), turns=1000)
     match2.play()
@@ -298,7 +310,7 @@ if __name__ == "__main__":
 
     # Test 3: Check specific sequence
     print("\n=== Action sequence (first 10 rounds) ===")
-    aif_test = CustomAIF()
+    aif_test = AIFJointAgent(1, 1.25, 1.0)
     tft_test = TitForTat()
     match3 = Match((aif_test, tft_test), turns=10)
     match3.play()

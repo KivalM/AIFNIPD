@@ -33,7 +33,7 @@ class JointWrapper(Player):
         # Joint state tracking
         self.prev_state: Tuple[Optional[Action], Optional[Action]] = (None, None)
         self.prev_action: Optional[Action] = None
-
+        self.noise: float = 0.0
         # Payoff matrix is set when a match starts
         self.payoff_matrix: Dict[Action, Dict[Action, float]] = {
             C: {C: 0.0, D: 0.0},
@@ -43,7 +43,8 @@ class JointWrapper(Player):
     def receive_match_attributes(self) -> None:  # type: ignore[override]
         (R, P, S, T) = self.match_attributes["game"].RPST()
         self.payoff_matrix = {C: {C: R, D: S}, D: {C: T, D: P}}
-
+        self.noise = self.match_attributes["noise"]
+        
     def strategy(self, opponent: Player) -> Action:  # type: ignore[override]
         if not self.history:
             state = (None, None)

@@ -34,6 +34,7 @@ def factorized_A(noise=0.2):
 
 def factorized_B():
     # B: identity transitions (no prior assumption)
+    # B_ego = np.ones((len(ALL_EGO_ACTIONS), len(ALL_EGO_ACTIONS), len(ALL_ACTIONS)))
     B_ego = np.ones((len(ALL_EGO_ACTIONS), len(ALL_EGO_ACTIONS), len(ALL_ACTIONS)))
     B_ego = B_ego / B_ego.sum(axis=0)
     
@@ -48,15 +49,15 @@ def factorized_B():
 def factorized_C():
     # Preference over observations
     C = np.zeros(len(ALL_OBSERVATIONS))
-    C[CC] = 3
+    C[CC] = 5
     C[CD] = 0
-    C[DC] = 5
+    C[DC] = 3
     C[DD] = 1
     return C
 
 def factorized_D():
-    D_ego = np.array([0.5, 0.5])
-    D_alter = np.array([0.5, 0.5])
+    D_ego = np.array([1, 0])
+    D_alter = np.array([1, 0])
     D = utils.obj_array(2)
     D[0] = D_ego
     D[1] = D_alter
@@ -77,6 +78,8 @@ def create_agent_factorized(
     learn_A: bool = True,
     noise: float = 0.2,
     policies  = None,
+    B_matrix: np.ndarray | None = None,
+    p_B_matrix: np.ndarray | None = None,
 ):
     A_matrix = factorized_A(noise=noise)
     B_matrices = factorized_B()
@@ -84,8 +87,11 @@ def create_agent_factorized(
     D_matrices = factorized_D()
     if policies is None:
         policies = create_policies(policy_len)
+ 
+    B_matrices = factorized_B() if B_matrix is None else B_matrix
+    
     pA_matrix = utils.dirichlet_like(A_matrix, scale=1e-32)
-    pB_matrices = utils.dirichlet_like(B_matrices, scale=1e-32)
+    pB_matrices = utils.dirichlet_like(B_matrices, scale=1e-32) if p_B_matrix is None else p_B_matrix
     pD_matrices = utils.dirichlet_like(D_matrices, scale=1e-32)
 
     agent = Agent(
@@ -93,18 +99,19 @@ def create_agent_factorized(
         B=B_matrices,
         C=C_matrix,
         D=D_matrices,
-        policies=policies,
+        # policies=policies,
         pA=pA_matrix,
         pB=pB_matrices,
         pD=pD_matrices,
-        E=np.array([1 for _ in range(len(policies))]),
+        # E=np.array([1 for _ in range(len(policies))]),
         lr_pA=lr_pA,
         lr_pB=lr_pB,
         lr_pD=lr_pB,
         # policy_len=policy_len,
         save_belief_hist=True,
         # action_selection="stochastic"
-        sampling_mode="full"
+        sampling_mode="full",
+        control_fac_idx=[0]
     )
     return agent
 
@@ -120,8 +127,8 @@ def joint_to_observation(my_action: Action, opponent_action: Action) -> int:
 
 def _extract_vector_action(sampled) -> int:
     arr = np.array(sampled)
-    assert np.array_equal(arr, np.array([1, 1])) or np.array_equal(arr, np.array([0, 0])), "sample_action should return vector"
-    return int(arr[0])
+    # assert np.array_equal(arr, np.array([1, 1])) or np.array_equal(arr, np.array([0, 0])), "sample_action should return vector"
+    return int(arr[1])
 
 
 class Factorized(JointWrapper):
@@ -134,6 +141,8 @@ class Factorized(JointWrapper):
         lr_pB: float = 1,
         learn_A: bool = False,
         aware_of_noise: bool = False,
+        B_matrix: np.ndarray | None = None,
+        p_B_matrix: np.ndarray | None = None,
     ):
         super().__init__()
         self.policy_len = policy_len
@@ -143,12 +152,16 @@ class Factorized(JointWrapper):
         self.lr_pB = lr_pB
         self.noise = 0.0
         self.policies = create_policies(policy_len)
+        self.B_matrix = B_matrix
+        self.p_B_matrix = p_B_matrix
         self.agent = create_agent_factorized(
             policy_len=self.policy_len,
             lr_pA=self.lr_pA,
             lr_pB=self.lr_pB,
             learn_A=self.learn_A,
             noise=self.noise,
+            B_matrix=self.B_matrix,
+            p_B_matrix=self.p_B_matrix,
         )
 
     def step(self, state: Tuple[Optional[Action], Optional[Action]]) -> Action:
@@ -171,8 +184,8 @@ class Factorized(JointWrapper):
         if len(self.agent.qs_hist) > 1:
             self.agent.update_B(qs_prev=self.agent.qs_hist[-2])
             # decay prior probabilities of actions
-            self.agent.pB[0] = self.agent.pB[0] * 0.95  
-            self.agent.pB[1] = self.agent.pB[1] * 0.95
+            # self.agent.pB[0] = self.agent.pB[0] * 0.95  
+            # self.agent.pB[1] = self.agent.pB[1] * 0.95
         return Action.C if act_idx == C else Action.D
 
     def reset(self):

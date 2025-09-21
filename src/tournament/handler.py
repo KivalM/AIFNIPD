@@ -32,7 +32,7 @@ class FileSystemHandler:
         """
         _, _, _, csv_results_file = self._get_paths(config)
         if csv_results_file.exists():
-            print(f"Skipping existing run: {csv_results_file}")
+            # print(f"Skipping existing run: {csv_results_file}")
             return True
         return False
 
@@ -68,12 +68,13 @@ class FileSystemHandler:
 
         # --- Add Intended Actions and calculate noise events ---
         player_indices = {name: i for i, name in enumerate(results.players)}
-
         def get_intended_actions(row):
             p_index = player_indices[row["Player name"]]
             o_index = player_indices[row["Opponent name"]]
-            rep = row["Repetition"]
-            return intended_histories[p_index][o_index][rep]
+            if len(intended_histories[p_index][o_index]) > 0:
+                return intended_histories[p_index][o_index].pop(0)
+            else:
+                return None
 
         df["Intended Actions"] = df.apply(get_intended_actions, axis=1)
 
@@ -113,9 +114,10 @@ def main():
     print("Setting up and running a test tournament...")
 
     # 1. Define players and tournament parameters
-    players = []
-    for strat in axl.strategies:
-        players.append(strat())
+    players = [
+        axl.Random(),
+        axl.TitFor2Tats(),
+    ]
 
 
     noise_levels = [0]
@@ -133,11 +135,11 @@ def main():
         repetitions=repetitions,
         seed=seed,
         callback=handler.save_results,
-        skip_callback=handler.skip_run,
+        # skip_callback=handler.skip_run,
     )
 
     # 4. Run the tournament
-    noise_tournament.run(turns=1, processes=processes)
+    noise_tournament.run(turns=10, processes=processes)
 
     print("Test tournament finished.")
     print(f"Results are saved in the '{handler.root_dir}' directory.")

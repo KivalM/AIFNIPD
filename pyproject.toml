@@ -10,12 +10,13 @@ requires-python = ">=3.13"
 dependencies = [
     "axelrod>=4.14.0",
     "gcloud>=0.18.3",
-    "intel-extension-for-openxla>=0.6.0",
     "ipykernel>=6.30.1",
     "jax>=0.7.0",
     "seaborn>=0.13.2",
     "inferactively-pymdp",
     "wandb>=0.21.1",
+    "matplot2tikz>=0.4.1",
+    "webcolors>1.13",
 ]
 
 [project.optional-dependencies]

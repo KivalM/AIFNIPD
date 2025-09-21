@@ -18,6 +18,7 @@ class CustomMatch(axl.Match):
         self.intended_actions_pair = []
 
     def simultaneous_play(self, player, coplayer, noise=0):
+        
         s1, s2 = player.strategy(coplayer), coplayer.strategy(player)
         self.intended_actions_pair.append((s1, s2))
         if noise:
@@ -72,7 +73,10 @@ def _run_single_tournament_worker(
     Required for multiprocessing.
     """
     players = [p.clone() for p in config["players"]]
-
+    # set seed for players
+    for player in players:
+        if hasattr(player, "set_seed"):
+            player.set_seed(config["seed"])
     tour = CustomTournament(
         players=players,
         noise=config["noise"],
