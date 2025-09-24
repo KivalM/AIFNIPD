@@ -37,6 +37,10 @@ testing_strategies = [
     axl.ContriteTitForTat(),
     axl.StochasticWSLS(),
     axl.WinStayLoseShift(),
+    axl.Cooperator(),
+    axl.Defector(),
+    JaxFiveStateAgent(10, 50, 5, 1, 1, 1.0, 0.5, "nash", 1),
+
 ]
 
 strategies = [
@@ -68,7 +72,7 @@ def main():
     import os
 
     for i, strategy in enumerate(testing_strategies):
-        repetitions = 5
+        repetitions = 10
         seed = 42
         turns = 1500
         processes = os.cpu_count() - 4

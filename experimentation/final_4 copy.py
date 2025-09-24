@@ -17,34 +17,13 @@ noise_levels = list(np.arange(0, 0.50, 0.05).round(2))
 testing_strategies = [
     axl.DBS(),
     axl.RiskyQLearner(),
-    axl.ArrogantQLearner(),
-    axl.CautiousQLearner(),
-    axl.HesitantQLearner(),
-    JaxFiveStateAgent(
-        10, 10, 5, 1.5, 0.6, 1.0, 0.5, "nash", 1
-    ),
-    JaxFiveStateAgent(
-        10, 50, 5, 1, 1, 1.0, 0.25, "nash", 1
-    ),
-    JaxFactorizedAgent(
-        10, 50, 5, 0.5, 0.3, 1.0, False, 0.75, "nash", 10
-    ),
-    JaxFactorizedAgent(
-        10, 100, 5, 1.5, 0.6, 0.6, False, 0.50, "nash", 100
-    ),
     axl.APavlov2011(),
-    axl.AdaptiveTitForTat(),
-    axl.GTFT(),
     axl.ContriteTitForTat(),
     axl.StochasticWSLS(),
-    axl.WinStayLoseShift(),
-        axl.Cooperator(),
+    axl.Cooperator(),
     axl.Defector(),
     JaxFiveStateAgent(10, 50, 5, 1, 1, 1.0, 0.5, "nash", 1),
-    JaxFiveStateAgentNoisy(10, 50, 5, 1, 1, 1.0, 1, 0.5, "nash"),
     JaxFiveStateAgentDecay(10, 50, 5, 1, 1, 1.0, 0.5, "nash", 1),
-
-
 ]
 
 strategies = [
@@ -56,7 +35,10 @@ strategies = [
     axl.Adaptive(),
     axl.Calculator(),
     axl.Prober4(),
+    axl.RiskyQLearner(),
+    axl.CautiousQLearner(),
 ]
+print(len(strategies))
 
 
 
@@ -75,7 +57,7 @@ def main():
         players = [strategy] + strategies
 
         # # 2. Instantiate the handler
-        handler = FileSystemHandler(root_dir=f"final_2/{i}_{strategy.__class__.__name__}")
+        handler = FileSystemHandler(root_dir=f"final_4/{i}_{strategy.__class__.__name__}")
 
         # # 3. Instantiate the tournament with the handler's callbacks
         noise_tournament = NoiseTournament(

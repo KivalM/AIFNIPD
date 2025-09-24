@@ -47,7 +47,6 @@ default_pool = [
     axl.ContriteTitForTat(),
     axl.OmegaTFT(),
     axl.Random(),
-    axl.APavlov2006(), axl.APavlov2011(), axl.AdaptiveTitForTat(), axl.AdaptorBrief(), axl.AdaptorLong(), axl.Adaptive(), axl.Calculator(), axl.Prober4(),
 ]
 
 # %%
