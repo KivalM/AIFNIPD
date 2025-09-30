@@ -1,4 +1,5 @@
-from typing import Dict, Union
+from typing import Union
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -7,151 +8,159 @@ from axelrod.player import Player
 from jax import random as jr
 from jax import lax
 
-Score = Union[int, float]
+# Use a more memory-efficient dtype
+# JAX often defaults to 64-bit, but 32-bit is usually sufficient and faster.
+DTYPE = jnp.float32
 
+# Define actions and states as constants
 C, D = Action.C, Action.D
+COOPERATE, DEFECT = 0, 1
+START, CC, CD, DC, DD = 0, 1, 2, 3, 4
 
-# States from five_state.py
-START = 0
-CC = 1
-CD = 2
-DC = 3
-DD = 4
 
-# Actions
-COOPERATE = 0
-DEFECT = 1
+# This is our single, pure JIT-compiled function for one turn's logic.
+# We use `static_argnames` to tell JAX which arguments are compile-time constants.
+# This results in more efficient code.
+@partial(jax.jit, static_argnames=("learning_rate", "discount_rate", "action_selection_parameter", "R", "P", "S", "T"))
+def _strategy_step(
+    # State variables
+    Qs,
+    Vs,
+    prev_state,
+    prev_action,
+    rng_key,
+    # Information from the current turn
+    is_first_turn,
+    opponent_last_action,
+    # Hyperparameters (static)
+    learning_rate,
+    discount_rate,
+    action_selection_parameter,
+    R, P, S, T,
+):
+    """
+    Performs all logic for a single turn within a JIT-compiled function.
+    """
+    # Create the payoff matrix inside the function
+    payoff_matrix = jnp.array([[R, S], [T, P]], dtype=DTYPE)
+    
+    # 1. Determine the current state and reward based on the last turn
+    my_last_action = jnp.array(prev_action, dtype=jnp.int32)
+    current_state = 1 + (my_last_action * 2) + opponent_last_action
+    reward = payoff_matrix[my_last_action, opponent_last_action]
+
+    # 2. Perform Q-Learning Update (from the previous turn's state/action)
+    q_value = (1.0 - learning_rate) * Qs[prev_state, prev_action] + learning_rate * (
+        reward + discount_rate * Vs[current_state]
+    )
+    Qs = Qs.at[prev_state, prev_action].set(q_value)
+    Vs = Vs.at[prev_state].set(jnp.max(Qs[prev_state]))
+
+    # If it's the first turn, we don't learn, we just select an action from START state
+    # We use lax.cond to avoid breaking the JIT compilation
+    Qs, Vs, state_for_action_selection = lax.cond(
+        is_first_turn,
+        lambda: (jnp.zeros_like(Qs), jnp.zeros_like(Vs), START), # Reset and use START state
+        lambda: (Qs, Vs, current_state), # Use updated tables and current state
+    )
+
+    # 3. Select the next action using epsilon-greedy
+    rng_key, subkey1, subkey2 = jr.split(rng_key, 3)
+    p = 1.0 - action_selection_parameter
+    exploit = jr.uniform(subkey1) < p
+
+    action_idx = lax.cond(
+        exploit,
+        lambda: jnp.argmax(Qs[state_for_action_selection]),
+        lambda: jr.choice(subkey2, jnp.array([COOPERATE, DEFECT])),
+    )
+
+    # 4. Return all updated state variables
+    return Qs, Vs, state_for_action_selection, action_idx, rng_key, action_idx
 
 
 class JaxQLearner(Player):
     """
-    A base class for Jax-based Q-learning agents.
+    An optimized Jax-based Q-learning agent that uses a single JIT-compiled
+    function for its turn-by-turn logic.
     """
-
+    
+    # Set default hyperparameters
     learning_rate = 0.5
     discount_rate = 0.9
     action_selection_parameter = 0.1
-    name = "QLearner"
+    name = "Jax QLearner"
+
     def __init__(self, learning_rate: float = 0.5, discount_rate: float = 0.9, action_selection_parameter: float = 0.1) -> None:
         super().__init__()
+        self.learning_rate = learning_rate
+        self.discount_rate = discount_rate
+        self.action_selection_parameter = action_selection_parameter
         self.classifier["stochastic"] = True
-
-        self.Qs = jnp.zeros((5, 2))
-        self.Vs = jnp.zeros(5)
-        self.prev_state = START
-        self.prev_action = None
         self.set_seed(0)
+        self.init_state()
 
     def set_seed(self, seed: int):
         self.seed = seed
         self.rng_key = jr.PRNGKey(self.seed)
 
+    def init_state(self):
+        """Initializes or resets the agent's state."""
+        self.Qs = jnp.zeros((5, 2), dtype=DTYPE)
+        self.Vs = jnp.zeros(5, dtype=DTYPE)
+        self.prev_state = START
+        # Initialize prev_action to Cooperate for the first update step
+        self.prev_action = COOPERATE
+
     def receive_match_attributes(self):
-        (R, P, S, T) = self.match_attributes["game"].RPST()
-        self.payoff_matrix = {C: {C: R, D: S}, D: {C: T, D: P}}
-
-    @staticmethod
-    @jax.jit
-    def _perform_q_learning(
-        Qs, Vs, prev_state, state, action, reward, learning_rate, discount_rate
-    ):
-        q_value = (1.0 - learning_rate) * Qs[prev_state, action] + learning_rate * (
-            reward + discount_rate * Vs[state]
-        )
-        Qs = Qs.at[prev_state, action].set(q_value)
-        Vs = Vs.at[prev_state].set(jnp.max(Qs[prev_state]))
-        return Qs, Vs
-
-    def perform_q_learning(self, prev_state, state, action, reward):
-        return self._perform_q_learning(
-            self.Qs,
-            self.Vs,
-            prev_state,
-            state,
-            action,
-            reward,
-            self.learning_rate,
-            self.discount_rate,
-        )
-
-    def select_action(self, rng_key, state: int) -> int:
-        subkey1, subkey2 = jr.split(rng_key)
-        rnd_num = jr.uniform(subkey1)
-        p = 1.0 - self.action_selection_parameter
-
-        exploit = rnd_num < p
-        
-        action = lax.cond(
-            exploit,
-            lambda: jnp.argmax(self.Qs[state]),
-            lambda: jr.choice(subkey2, jnp.array([COOPERATE, DEFECT])),
-        )
-        return int(action)
-
-    def find_state(self, opponent: Player) -> int:
-        if len(self.history) == 0:
-            return START
-        my_last_action = self.history[-1]
-        opponent_last_action = opponent.history[-1]
-        state_idx = 1 + (my_last_action.value * 2) + opponent_last_action.value
-        return state_idx
-
-    def find_reward(self, opponent: Player):
-        if len(opponent.history) == 0:
-            return 0
-        
-        my_action = Action.C if self.prev_action == COOPERATE else Action.D
-        opp_action = opponent.history[-1]
-        return self.payoff_matrix[my_action][opp_action]
+        (self.R, self.P, self.S, self.T) = self.match_attributes["game"].RPST()
 
     def strategy(self, opponent: Player) -> Action:
-        self.rng_key, subkey = jr.split(self.rng_key)
-        state = self.find_state(opponent)
+        is_first_turn = len(self.history) == 0
+        
+        # Get opponent's last action, default to Cooperate if first turn
+        opponent_last_action = opponent.history[-1].value if not is_first_turn else COOPERATE
 
-        if len(self.history) > 0:
-            reward = self.find_reward(opponent)
-            self.Qs, self.Vs = self.perform_q_learning(
-                self.prev_state, state, self.prev_action, reward
-            )
+        # Call the single, fast JIT'd function
+        new_Qs, new_Vs, current_state, action_idx, new_rng_key, new_action = _strategy_step(
+            self.Qs,
+            self.Vs,
+            self.prev_state,
+            self.prev_action,
+            self.rng_key,
+            is_first_turn,
+            opponent_last_action,
+            self.learning_rate,
+            self.discount_rate,
+            self.action_selection_parameter,
+            self.R, self.P, self.S, self.T,
+        )
 
-        action_idx = self.select_action(subkey, state)
-        self.prev_state = state
-        self.prev_action = action_idx
-        return Action.C if action_idx == COOPERATE else Action.D
+        # Update the agent's state with the results from the pure function
+        self.Qs = new_Qs
+        self.Vs = new_Vs
+        self.rng_key = new_rng_key
+        self.prev_state = int(current_state)
+        self.prev_action = int(new_action)
+        
+        return C if action_idx == COOPERATE else D
 
     def reset(self) -> None:
         super().reset()
-        self.Qs = jnp.zeros((5, 2))
-        self.Vs = jnp.zeros(5)
-        self.prev_state = START
-        self.prev_action = None
-
+        self.init_state()
 
 class RiskyQLearner(JaxQLearner):
     name = "Risky QLearner"
-    classifier = {
-        "memory_depth": 1,
-        "stochastic": True,
-        "long_run_time": False,
-        "inspects_source": False,
-        "manipulates_source": False,
-        "manipulates_state": False,
-    }
     learning_rate = 0.9
     discount_rate = 0.9
 
-
 class ArrogantQLearner(RiskyQLearner):
     name = "Arrogant QLearner"
-    learning_rate = 0.9
     discount_rate = 0.1
-
 
 class HesitantQLearner(RiskyQLearner):
     name = "Hesitant QLearner"
     learning_rate = 0.5
-    discount_rate = 0.9
-
 
 class CautiousQLearner(RiskyQLearner):
     name = "Cautious QLearner"
@@ -160,8 +169,15 @@ class CautiousQLearner(RiskyQLearner):
 
 if __name__ == "__main__":
     import axelrod as axl
+    import time
+    
     agent = HesitantQLearner()
     opponent = axl.Defector()
-    match = axl.Match((agent, opponent), turns=1000, noise=0.05)
+    
+    start_time = time.time()
+    match = axl.Match((agent, opponent), turns=10000, noise=0.05) # Increased turns to see the speedup
     match.play()
-    print(match.final_score_per_turn())
+    end_time = time.time()
+    
+    print(f"Match finished in {end_time - start_time:.4f} seconds.")
+    print(f"Final score per turn: {match.final_score_per_turn()}")
