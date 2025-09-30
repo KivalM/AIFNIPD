@@ -10,6 +10,7 @@ from agents.aif.jax.factorized import JaxFactorizedAgent
 from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
 from agents.aif.jax.five_state import JaxFiveStateAgent
 from agents.aif.jax.five_state_decay import JaxFiveStateAgentDecay
+from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
 
 # Generate noise levels from 0 to 0.5 at 0.05 intervals
 noise_levels = list(np.arange(0, 0.50, 0.05).round(2))
@@ -25,6 +26,8 @@ testing_strategies = [
     JaxFiveStateAgent(10, 50, 5, 1, 1, 1.0, 0.5, "nash", 1),
     JaxFiveStateAgentDecay(10, 50, 5, 1, 1, 1.0, 0.5, "nash", 1),
     JaxFiveStateAgentNoisy(10, 50, 5, 1, 1, 1.0, 1, 0.5, "nash"),
+    JaxFiveStateAgentUtility(10, 50, 5, 1, 1, 1.0, 0.5, "nash", 1),
+    JaxFiveStateAgent(10, 50, 5, 1, 1, 1.0, 0.5, "standard", 1),
 ]
 
 strategies = [strategies() for strategies in axl.basic_strategies]
@@ -39,15 +42,15 @@ def main():
     import os
 
     for i, strategy in enumerate(testing_strategies):
-        repetitions = 10
+        repetitions = 5
         seed = 42
-        turns = 1500
+        turns = 50
         processes = os.cpu_count() - 4
 
         players = [strategy] + strategies
 
         # # 2. Instantiate the handler
-        handler = FileSystemHandler(root_dir=f"final_3/{i}_{strategy.__class__.__name__}")
+        handler = FileSystemHandler(root_dir=f"final_3_50/{i}_{strategy.__class__.__name__}")
 
         # # 3. Instantiate the tournament with the handler's callbacks
         noise_tournament = NoiseTournament(

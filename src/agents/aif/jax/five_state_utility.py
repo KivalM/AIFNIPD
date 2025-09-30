@@ -130,12 +130,11 @@ def step(rng_key, agent, obs_idx, empirical_prior):
 @jit
 def update_B(agent, beliefs, outcomes, actions, lr_B=1):
     agent =  agent.infer_parameters(beliefs, outcomes, actions, lr_B=lr_B)
-    agent.pB[0] = agent.pB[0] * 0.9
     return agent
 
 
-class JaxFiveStateAgentDecay(JointWrapper):
-    name = "JAX_AIF_DECAY"
+class JaxFiveStateAgentUtility(JointWrapper):
+    name = "JAX_AIF_UTILITY"
 
     def __init__(
         self,
@@ -243,7 +242,7 @@ if __name__ == "__main__":
     from axelrod import Match
     from axelrod.strategies.titfortat import TitForTat
 
-    agent = JaxFiveStateAgent(seed=0, lr_B=1.5, update_interval=10, alpha=0.6, bias=0.5, preference="nash", pB_scale=1)
+    agent = JaxFiveStateAgentUtility(seed=0, lr_B=1.5, update_interval=10, alpha=0.6, bias=0.5, preference="nash", pB_scale=1)
     agent2 = axl.DBS()
     agent3 = axl.APavlov2011()
     agent4 = axl.StochasticWSLS()
