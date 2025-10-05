@@ -14,7 +14,7 @@ import tqdm
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
 repetitions = 5
 turns = 1000
-processes = os.cpu_count() - 2
+processes = 16
 seed = 42
 np.random.seed(seed)
 random.seed(seed)
@@ -25,16 +25,16 @@ random.seed(seed)
         # violation_threshold=4,
         # reject_threshold=3,
         # tree_depth=5,
-discount_factors = [0.1, 0.25, 0.5, 0.75, 0.9]
-promotion_thresholds = [1, 2, 3, 4, 5]
-violation_thresholds = [1, 2, 3, 4, 5]
-reject_thresholds = [1, 2, 3, 4, 5]
-tree_depths = [1, 2, 3, 4, 5]
+discount_factors = [0.75, 0.999]
+promotion_thresholds = [3, 5]
+violation_thresholds = [2, 4]
+reject_thresholds = [3, 5]
+tree_depths = [3,5]
 
 def run_search():
     # Create all combinations
     combinations = list(itertools.product(discount_factors, promotion_thresholds, violation_thresholds, reject_thresholds, tree_depths))
-
+    print(f"Running {len(combinations)} combinations")
     for combination in combinations:
         discount_factor, promotion_threshold, violation_threshold, reject_threshold, tree_depth = combination
         agent = axl.DBS(discount_factor, promotion_threshold, violation_threshold, reject_threshold, tree_depth)
@@ -50,3 +50,8 @@ def run_search():
             skip_callback=handler.skip_run, 
         )
         noise_tournament.run(turns=turns, processes=processes)
+    
+if __name__ == "__main__":
+    import multiprocessing as mp
+    mp.freeze_support()
+    run_search()
