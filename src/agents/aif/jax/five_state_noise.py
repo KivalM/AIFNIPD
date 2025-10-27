@@ -112,16 +112,18 @@ def make_agent(
         policy_len=policy_len,
         use_utility=True,
         use_states_info_gain=True,
-        use_param_info_gain=False,
+        use_param_info_gain=True,
         gamma=jnp.ones(1) * gamma,
         alpha=jnp.ones(1) * alpha,
         onehot_obs=False,
         action_selection="stochastic",
         inference_algo="ovf",
-        num_iter=16,
+        num_iter=1,
         learn_A=False,
         learn_B=True,
         learn_D=False,
+        sampling_mode="marginal",
+
     )
 
     return agent

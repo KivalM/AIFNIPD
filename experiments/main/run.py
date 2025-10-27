@@ -17,9 +17,9 @@ import tqdm
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
-repetitions = 10
+repetitions = 30
 turns = 1000
-processes = 32
+processes = 16
 seed = 42
 
 strategies = [
@@ -54,7 +54,7 @@ strategies = [
         bias=0.5,
         preference="standard",
         policy_len=10,
-        update_interval=10,
+        update_interval=50,
         seed=seed,
         lr_B=1,
     ),
@@ -79,6 +79,19 @@ strategies = [
         initial_variance=1.0,
         reward_variance=1.0,
     ),
+    JaxFiveStateAgentNoisy(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        preference="nash",
+        policy_len=10,
+        update_interval=50,
+        seed=seed,
+        lr_B=1,
+    ),
+    axl.GTFT(),
+    axl.ContriteTitForTat(),
 ]
 
 def run_experiment(strategies, opponents, dir_name):
