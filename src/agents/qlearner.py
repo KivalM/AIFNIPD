@@ -79,6 +79,65 @@ def _strategy_step(
     return Qs, Vs, state_for_action_selection, action_idx, rng_key, action_idx
 
 
+@partial(jax.jit, static_argnames=("learning_rate", "discount_rate", "action_selection_parameter", "R", "P", "S", "T"))
+def _cooperative_strategy_step(
+    # State variables
+    Qs,
+    Vs,
+    prev_state,
+    prev_action,
+    rng_key,
+    # Information from the current turn
+    is_first_turn,
+    opponent_last_action,
+    # Hyperparameters (static)
+    learning_rate,
+    discount_rate,
+    action_selection_parameter,
+    R, P, S, T,
+):
+    """
+    Performs all logic for a single turn within a JIT-compiled function.
+    Modified version for cooperative Q-learning where DC reward is 0.
+    """
+    # Create the payoff matrix with DC reward set to 0
+    payoff_matrix = jnp.array([[R, S], [0, P]], dtype=DTYPE)
+    
+    # 1. Determine the current state and reward based on the last turn
+    my_last_action = jnp.array(prev_action, dtype=jnp.int32)
+    current_state = 1 + (my_last_action * 2) + opponent_last_action
+    reward = payoff_matrix[my_last_action, opponent_last_action]
+
+    # 2. Perform Q-Learning Update (from the previous turn's state/action)
+    q_value = (1.0 - learning_rate) * Qs[prev_state, prev_action] + learning_rate * (
+        reward + discount_rate * Vs[current_state]
+    )
+    Qs = Qs.at[prev_state, prev_action].set(q_value)
+    Vs = Vs.at[prev_state].set(jnp.max(Qs[prev_state]))
+
+    # If it's the first turn, we don't learn, we just select an action from START state
+    # We use lax.cond to avoid breaking the JIT compilation
+    Qs, Vs, state_for_action_selection = lax.cond(
+        is_first_turn,
+        lambda: (jnp.zeros_like(Qs), jnp.zeros_like(Vs), START), # Reset and use START state
+        lambda: (Qs, Vs, current_state), # Use updated tables and current state
+    )
+
+    # 3. Select the next action using epsilon-greedy
+    rng_key, subkey1, subkey2 = jr.split(rng_key, 3)
+    p = 1.0 - action_selection_parameter
+    exploit = jr.uniform(subkey1) < p
+
+    action_idx = lax.cond(
+        exploit,
+        lambda: jnp.argmax(Qs[state_for_action_selection]),
+        lambda: jr.choice(subkey2, jnp.array([COOPERATE, DEFECT])),
+    )
+
+    # 4. Return all updated state variables
+    return Qs, Vs, state_for_action_selection, action_idx, rng_key, action_idx
+
+
 class JaxQLearner(Player):
     """
     An optimized Jax-based Q-learning agent that uses a single JIT-compiled
@@ -167,10 +226,48 @@ class CautiousQLearner(RiskyQLearner):
     learning_rate = 0.1
     discount_rate = 0.1
 
+class CooperativeQLearner(JaxQLearner):
+    """
+    A cooperative Q-learning variant where exploitation (DC) gives 0 reward,
+    making cooperation (CC) the highest reward outcome.
+    """
+    name = "Cooperative QLearner"
+    
+    def strategy(self, opponent: Player) -> Action:
+        is_first_turn = len(self.history) == 0
+        
+        # Get opponent's last action, default to Cooperate if first turn
+        opponent_last_action = opponent.history[-1].value if not is_first_turn else COOPERATE
+
+        # Call the single, fast JIT'd function with modified payoff matrix
+        new_Qs, new_Vs, current_state, action_idx, new_rng_key, new_action = _cooperative_strategy_step(
+            self.Qs,
+            self.Vs,
+            self.prev_state,
+            self.prev_action,
+            self.rng_key,
+            is_first_turn,
+            opponent_last_action,
+            self.learning_rate,
+            self.discount_rate,
+            self.action_selection_parameter,
+            self.R, self.P, self.S, self.T,
+        )
+
+        # Update the agent's state with the results from the pure function
+        self.Qs = new_Qs
+        self.Vs = new_Vs
+        self.rng_key = new_rng_key
+        self.prev_state = int(current_state)
+        self.prev_action = int(new_action)
+        
+        return C if action_idx == COOPERATE else D
+
 if __name__ == "__main__":
     import axelrod as axl
     import time
     
+    # Test the original QLearner
     agent = HesitantQLearner()
     opponent = axl.Defector()
     
@@ -179,5 +276,17 @@ if __name__ == "__main__":
     match.play()
     end_time = time.time()
     
-    print(f"Match finished in {end_time - start_time:.4f} seconds.")
+    print(f"Original QLearner match finished in {end_time - start_time:.4f} seconds.")
     print(f"Final score per turn: {match.final_score_per_turn()}")
+    
+    # Test the new CooperativeQLearner
+    cooperative_agent = CooperativeQLearner()
+    cooperative_opponent = axl.Defector()
+    
+    start_time = time.time()
+    cooperative_match = axl.Match((cooperative_agent, cooperative_opponent), turns=10000, noise=0.05)
+    cooperative_match.play()
+    end_time = time.time()
+    
+    print(f"\nCooperative QLearner match finished in {end_time - start_time:.4f} seconds.")
+    print(f"Final score per turn: {cooperative_match.final_score_per_turn()}")

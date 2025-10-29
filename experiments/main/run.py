@@ -1,3 +1,4 @@
+from typing import Any
 from tournament.handler import FileSystemHandler
 from tournament.tournament import NoiseTournament
 from experiments import static_pool, learn_pool
@@ -8,6 +9,7 @@ from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
 from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
 from agents.bqlearner import JaxBayesianQLearner
 from agents.qlearner import JaxQLearner
+from agents.qlearner import CooperativeQLearner
 import axelrod as axl
 import numpy as np
 import os
@@ -92,10 +94,15 @@ strategies = [
     ),
     axl.GTFT(),
     axl.ContriteTitForTat(),
+    CooperativeQLearner(
+        learning_rate=0.9,
+        discount_rate=0.9,
+        action_selection_parameter=0.1,
+    ),
 ]
 
 def run_experiment(strategies, opponents, dir_name):
-    for i, strategy in enumerate(strategies):
+    for i, strategy in enumerate[Any](strategies):
         handler = FileSystemHandler(root_dir=f"results/main/{dir_name}/{i}_{strategy.__class__.__name__}")
         noise_tournament = NoiseTournament(
             players=[strategy] + opponents,

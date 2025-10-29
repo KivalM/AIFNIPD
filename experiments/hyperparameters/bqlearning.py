@@ -44,3 +44,8 @@ def run_search():
             skip_callback=handler.skip_run,
         )
         noise_tournament.run(turns=turns, processes=processes)
+
+if __name__ == "__main__":
+    import multiprocessing as mp
+    mp.freeze_support()
+    run_search()
