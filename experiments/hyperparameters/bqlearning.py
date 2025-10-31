@@ -15,7 +15,7 @@ import tqdm
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
 repetitions = 5
 turns = 1000
-processes = os.cpu_count() - 2
+processes = 16
 seed = 42
 np.random.seed(seed)
 random.seed(seed)
@@ -34,7 +34,7 @@ def run_search():
         agent = JaxBayesianQLearner(discount_rate, initial_variance, reward_variance)
         agent.name = f"BQLearner_{discount_rate}_{initial_variance}_{reward_variance}"
         strats = [agent] + static_pool + learn_pool
-        handler = FileSystemHandler(root_dir=f"results/hyperparameters/bqlearning/{agent.name}")
+        handler = FileSystemHandler(root_dir=f"results_1000/hyperparameters/bqlearning/{agent.name}")
         noise_tournament = NoiseTournament(
             players=strats,
             noise_levels=noise_levels,

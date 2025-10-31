@@ -15,7 +15,7 @@ import tqdm
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
 repetitions = 5
 turns = 1000
-processes = os.cpu_count() - 2
+processes = 16
 seed = 42
 np.random.seed(seed)
 random.seed(seed)
@@ -44,3 +44,9 @@ def run_search():
             skip_callback=handler.skip_run,
         )
         noise_tournament.run(turns=turns, processes=processes)
+
+
+if __name__ == "__main__":
+    import multiprocessing as mp
+    mp.freeze_support()
+    run_search()

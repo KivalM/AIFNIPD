@@ -14,7 +14,7 @@ import tqdm
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
 repetitions = 5
 turns = 1000
-processes = 16
+processes = 16      
 seed = 42
 np.random.seed(seed)
 random.seed(seed)

@@ -81,7 +81,7 @@ def make_agent(
     if preference == "standard":
         C_1[CC] = 3
         C_1[CD] = 0
-        C_1[DC] = 4
+        C_1[DC] = 5
         C_1[DD] = 1
     elif preference == "nash":
         C_1[CC] = 3

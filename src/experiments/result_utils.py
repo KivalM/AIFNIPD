@@ -196,9 +196,16 @@ def get_agent_dirs(pool_dir: Path) -> List[Tuple[str, str]]:
     agent_dirs = []
     for d in pool_dir.iterdir():
         if d.is_dir():
-            # Format is "index_AgentName"
-            # Use the full directory name as display name to keep index
-            agent_dirs.append((d.name, d.name))
+            # Skip non-agent directories (like 'plots')
+            # Agent directories follow the format "index_AgentName"
+            try:
+                # Try to extract index from directory name
+                index = int(d.name.split('_')[0])
+                # If successful, this is an agent directory
+                agent_dirs.append((d.name, d.name))
+            except (ValueError, IndexError):
+                # Not an agent directory, skip it
+                continue
     
     # Sort by index
     agent_dirs.sort(key=lambda x: int(x[0].split('_')[0]))

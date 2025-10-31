@@ -27,6 +27,9 @@ xpu = [
     "torchaudio",
 ]
 
+[project.scripts]
+genplots = "experiments.cli:main"
+
 
 [tool.uv.sources]
 inferactively-pymdp = { git = "https://github.com/kivalm/pymdp", branch = "master" }
