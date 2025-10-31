@@ -111,6 +111,28 @@ strategies = [
     axl.DBS(0.999, 5, 2, 3, 5),
     axl.GTFT(),
     axl.ContriteTitForTat(),
+    JaxFiveStateAgentUtility(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        preference="standard",
+        policy_len=10,
+        update_interval=50,
+        seed=seed,
+        lr_B=1,
+    ),
+    JaxFiveStateAgentUtility(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        preference="nash",
+        policy_len=10,
+        update_interval=50,
+        seed=seed,
+        lr_B=1,
+    ),
 ]
 
 def run_experiment(strategies, opponents, dir_name):
@@ -747,6 +769,7 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
     architecture_groups = {
         'cooperative': {
             'AIF-C': '1',
+            'AIF-C-N': '7',
             'QL-C': '3',
             'BQL-C': '5',
         },
@@ -754,6 +777,7 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
             'AIF-R': '0',
             'QL-R': '2',
             'BQL-R': '4',
+            'AIF-R-N': '6',
         }
     }
     
