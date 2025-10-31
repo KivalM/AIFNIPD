@@ -36,7 +36,7 @@ import seaborn as sns
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
-repetitions = 10
+repetitions = 30
 turns = 1000
 processes = 20
 seed = 42
@@ -291,6 +291,9 @@ def generate_plots():
     
     # Generate variance visualizations
     visualize_variance_analysis(analysis_dir, main_plots_dir)
+    
+    # Generate CVaR analysis
+    generate_cvar_analysis(main_plots_dir, rename_map)
     
     print("\n" + "="*60)
     print("Plot generation complete!")
@@ -670,6 +673,190 @@ def visualize_variance_analysis(analysis_dir: Path, plots_dir: Path):
         plt.close()
     
     print(f"    ✓ Variance visualizations saved to {variance_plots_dir}")
+
+
+def calculate_cvar(values: np.ndarray, alpha: float = 0.05) -> float:
+    """
+    Calculate Conditional Value at Risk (CVaR) / Expected Shortfall.
+    
+    CVaR is the average of the worst alpha% of outcomes.
+    
+    Args:
+        values: Array of values (scores, rates, etc.)
+        alpha: Confidence level (e.g., 0.05 for worst 5%)
+        
+    Returns:
+        CVaR value (average of worst alpha% outcomes)
+    """
+    sorted_values = np.sort(values)
+    cutoff_index = max(1, int(np.ceil(alpha * len(sorted_values))))
+    return np.mean(sorted_values[:cutoff_index])
+
+
+def calculate_metric_cvar(pool_dir: Path, agent_dir: str, noise_level: float, 
+                         metric: str = 'score', alpha: float = 0.05) -> float:
+    """
+    Calculate CVaR for a specific metric (score, cc_rate, or cd_rate).
+    
+    Args:
+        pool_dir: Path to pool directory
+        agent_dir: Agent directory name
+        noise_level: Noise level
+        metric: 'score', 'cc_rate', or 'cd_rate'
+        alpha: Confidence level
+        
+    Returns:
+        CVaR value for the metric
+    """
+    from experiments.result_utils import load_tournament_results
+    
+    df = load_tournament_results(pool_dir, agent_dir, noise_level)
+    if df.empty:
+        return np.nan
+    
+    agent_data = df[df['Player index'] == 0]
+    
+    # Calculate metric per repetition
+    values = []
+    for rep in agent_data['repetition'].unique():
+        rep_data = agent_data[agent_data['repetition'] == rep]
+        
+        if metric == 'score':
+            values.append(rep_data['Score'].mean())
+        elif metric == 'cc_rate':
+            total_turns = rep_data['Turns'].sum()
+            cc_count = rep_data['CC count'].sum()
+            if total_turns > 0:
+                values.append(cc_count / total_turns)
+        elif metric == 'cd_rate':
+            total_turns = rep_data['Turns'].sum()
+            cd_count = rep_data['CD count'].sum()
+            if total_turns > 0:
+                values.append(cd_count / total_turns)
+    
+    if values:
+        return calculate_cvar(np.array(values), alpha)
+    return np.nan
+
+
+def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
+    """Generate CVaR analysis comparing architectures (AIF vs QL vs BQL) within strategy types."""
+    print("\n  Generating CVaR (5%) analysis comparing architectures...")
+    
+    # Agent groups: Compare architectures within strategy types
+    architecture_groups = {
+        'cooperative': {
+            'AIF-C': '1',
+            'QL-C': '3',
+            'BQL-C': '5',
+        },
+        'rational': {
+            'AIF-R': '0',
+            'QL-R': '2',
+            'BQL-R': '4',
+        }
+    }
+    
+    # Create CVaR plots subdirectory
+    cvar_plots_dir = plots_dir / 'cvar_analysis'
+    cvar_plots_dir.mkdir(exist_ok=True)
+    
+    noise_levels_list = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25]
+    
+    for pool_name in ['static', 'learning']:
+        pool_dir = Path(f'results/main/{pool_name}')
+        plots_subdir = cvar_plots_dir / pool_name
+        plots_subdir.mkdir(exist_ok=True)
+        
+        print(f"    Processing {pool_name} pool...")
+        
+        # Generate CVaR plots for each strategy type (cooperative vs rational)
+        for strategy_type, agents in architecture_groups.items():
+            print(f"      Generating {strategy_type} architecture comparison CVaR plots...")
+            
+            # Collect data for all architectures in this strategy type
+            cvar_data = {
+                'scores': {},
+                'cc_rates': {},
+                'cd_rates': {}
+            }
+            
+            for agent_name, agent_idx in agents.items():
+                # Find the actual directory
+                agent_dir = None
+                for d in pool_dir.iterdir():
+                    if d.is_dir() and d.name.startswith(f"{agent_idx}_"):
+                        agent_dir = d.name
+                        break
+                
+                if agent_dir:
+                    score_cvars = []
+                    cc_cvars = []
+                    cd_cvars = []
+                    
+                    for noise in noise_levels_list:
+                        score_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'score')
+                        cc_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'cc_rate')
+                        cd_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'cd_rate')
+                        
+                        score_cvars.append(score_cvar)
+                        cc_cvars.append(cc_cvar)
+                        cd_cvars.append(cd_cvar)
+                    
+                    cvar_data['scores'][agent_name] = score_cvars
+                    cvar_data['cc_rates'][agent_name] = cc_cvars
+                    cvar_data['cd_rates'][agent_name] = cd_cvars
+            
+            # Plot CVaR for Scores
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for agent_name, values in cvar_data['scores'].items():
+                ax.plot(noise_levels_list, values, marker='o', 
+                       label=agent_name, linewidth=2, markersize=6)
+            ax.set_xlabel('Noise Level', fontsize=11)
+            ax.set_ylabel('CVaR Score (Worst 5%)', fontsize=11)
+            ax.set_title(f'{pool_name.capitalize()} Pool: {strategy_type.capitalize()} Architectures - CVaR Score vs Noise', 
+                        fontsize=12, fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(plots_subdir / f'{pool_name}_{strategy_type}_cvar_scores.pdf', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            # Plot CVaR for CC Rates
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for agent_name, values in cvar_data['cc_rates'].items():
+                ax.plot(noise_levels_list, values, marker='o', 
+                       label=agent_name, linewidth=2, markersize=6)
+            ax.set_xlabel('Noise Level', fontsize=11)
+            ax.set_ylabel('CVaR CC Rate (Worst 5%)', fontsize=11)
+            ax.set_title(f'{pool_name.capitalize()} Pool: {strategy_type.capitalize()} Architectures - CVaR CC Rate vs Noise', 
+                        fontsize=12, fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(-0.05, 1.05)
+            plt.tight_layout()
+            plt.savefig(plots_subdir / f'{pool_name}_{strategy_type}_cvar_cc_rate.pdf', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            # Plot CVaR for CD Rates
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for agent_name, values in cvar_data['cd_rates'].items():
+                ax.plot(noise_levels_list, values, marker='o', 
+                       label=agent_name, linewidth=2, markersize=6)
+            ax.set_xlabel('Noise Level', fontsize=11)
+            ax.set_ylabel('CVaR CD Rate (Worst 5%)', fontsize=11)
+            ax.set_title(f'{pool_name.capitalize()} Pool: {strategy_type.capitalize()} Architectures - CVaR CD Rate vs Noise', 
+                        fontsize=12, fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(-0.05, 0.45)
+            plt.tight_layout()
+            plt.savefig(plots_subdir / f'{pool_name}_{strategy_type}_cvar_cd_rate.pdf', dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        print(f"      ✓ Saved {pool_name} CVaR plots")
+    
+    print(f"    ✓ CVaR visualizations saved to {cvar_plots_dir}")
 
 
 if __name__ == "__main__":
