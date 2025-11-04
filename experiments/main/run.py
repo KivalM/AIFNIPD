@@ -33,6 +33,7 @@ from experiments import (
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import stats
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
@@ -172,6 +173,8 @@ def generate_plots():
         '8': 'DBS',             # DBS
         '9': 'GTFT',            # GTFT
         '10': 'CTFT',           # ContriteTitForTat
+        '11': 'AIF-R-U',        # JaxFiveStateAgentUtility (standard)
+        '12': 'AIF-C-U',        # JaxFiveStateAgentUtility (nash)
     }
     
     # Agent groups for focused plots
@@ -316,6 +319,9 @@ def generate_plots():
     
     # Generate CVaR analysis
     generate_cvar_analysis(main_plots_dir, rename_map)
+    
+    # Generate comprehensive analysis CSV
+    generate_comprehensive_analysis_csv(analysis_dir, rename_map)
     
     print("\n" + "="*60)
     print("Plot generation complete!")
@@ -881,6 +887,315 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
         print(f"      ✓ Saved {pool_name} CVaR plots")
     
     print(f"    ✓ CVaR visualizations saved to {cvar_plots_dir}")
+
+
+def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
+    """Generate a comprehensive CSV with all analysis data per agent per noise level."""
+    print("\n" + "="*60)
+    print("Generating comprehensive analysis CSV...")
+    print("="*60)
+    
+    from experiments.result_utils import load_tournament_results, get_agent_dirs
+    from experiments.stats_utils import compare_variances_pairwise, compare_variances_all
+    
+    comprehensive_data = []
+    
+    # Reference agents for variance comparisons: DBS (8), AIF-C (1), QL-C (3)
+    reference_agents = {
+        '8': 'DBS',
+        '1': 'AIF-C',
+        '3': 'QL-C'
+    }
+    
+    noise_levels_list = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25]
+    
+    for pool_name in ['static', 'learning']:
+        print(f"\n  Processing {pool_name} pool...")
+        pool_dir = Path(f'results/main/{pool_name}')
+        agent_dirs = get_agent_dirs(pool_dir)
+        
+        # Load reference agent scores for variance comparisons
+        reference_scores = {}
+        for agent_idx, agent_name in reference_agents.items():
+            # Find the actual directory
+            agent_dir = None
+            for d in pool_dir.iterdir():
+                if d.is_dir() and d.name.startswith(f"{agent_idx}_"):
+                    agent_dir = d.name
+                    break
+            
+            if agent_dir:
+                reference_scores[agent_idx] = {}
+                for noise in noise_levels_list:
+                    scores = load_agent_repetition_scores(pool_dir, agent_dir, noise)
+                    if len(scores) > 0:
+                        reference_scores[agent_idx][noise] = scores
+        
+        # Process each agent
+        for agent_dir_name, display_name in agent_dirs:
+            agent_idx = agent_dir_name.split('_')[0]
+            agent_display_name = rename_map.get(agent_idx, display_name)
+            
+            print(f"    Processing {agent_display_name} ({agent_dir_name})...")
+            
+            for noise in noise_levels_list:
+                # Load tournament results
+                df = load_tournament_results(pool_dir, agent_dir_name, noise)
+                if df.empty:
+                    continue
+                
+                agent_data = df[df['Player index'] == 0]
+                
+                # Calculate per-repetition metrics
+                score_values = []
+                cc_rate_values = []
+                cd_rate_values = []
+                
+                for rep in agent_data['repetition'].unique():
+                    rep_data = agent_data[agent_data['repetition'] == rep]
+                    
+                    # Score
+                    score_values.append(rep_data['Score'].mean())
+                    
+                    # CC rate
+                    total_turns = rep_data['Turns'].sum()
+                    cc_count = rep_data['CC count'].sum()
+                    if total_turns > 0:
+                        cc_rate_values.append(cc_count / total_turns)
+                    
+                    # CD rate
+                    cd_count = rep_data['CD count'].sum()
+                    if total_turns > 0:
+                        cd_rate_values.append(cd_count / total_turns)
+                
+                if not score_values:
+                    continue
+                
+                score_arr = np.array(score_values)
+                cc_arr = np.array(cc_rate_values) if cc_rate_values else np.array([])
+                cd_arr = np.array(cd_rate_values) if cd_rate_values else np.array([])
+                
+                n = len(score_arr)
+                
+                # Score statistics
+                score_mean = np.mean(score_arr)
+                score_std = np.std(score_arr, ddof=1)
+                score_var = np.var(score_arr, ddof=1)
+                score_cv = score_std / score_mean if score_mean != 0 else np.nan
+                score_min = np.min(score_arr)
+                score_max = np.max(score_arr)
+                score_median = np.median(score_arr)
+                score_q25 = np.percentile(score_arr, 25)
+                score_q75 = np.percentile(score_arr, 75)
+                score_iqr = score_q75 - score_q25
+                score_cvar = calculate_cvar(score_arr, alpha=0.05)
+                
+                # 95% CI for scores
+                if n > 1:
+                    ci = stats.t.interval(0.95, n-1, loc=score_mean, scale=score_std/np.sqrt(n))
+                    score_ci_lower = ci[0]
+                    score_ci_upper = ci[1]
+                else:
+                    score_ci_lower = score_mean
+                    score_ci_upper = score_mean
+                
+                # CC rate statistics
+                if len(cc_arr) > 0:
+                    cc_mean = np.mean(cc_arr)
+                    cc_std = np.std(cc_arr, ddof=1)
+                    cc_var = np.var(cc_arr, ddof=1)
+                    cc_cv = cc_std / cc_mean if cc_mean != 0 else np.nan
+                    cc_min = np.min(cc_arr)
+                    cc_max = np.max(cc_arr)
+                    cc_median = np.median(cc_arr)
+                    cc_q25 = np.percentile(cc_arr, 25)
+                    cc_q75 = np.percentile(cc_arr, 75)
+                    cc_iqr = cc_q75 - cc_q25
+                    cc_cvar = calculate_cvar(cc_arr, alpha=0.05)
+                    
+                    if n > 1:
+                        ci = stats.t.interval(0.95, n-1, loc=cc_mean, scale=cc_std/np.sqrt(n))
+                        cc_ci_lower = max(0, ci[0])
+                        cc_ci_upper = min(1, ci[1])
+                    else:
+                        cc_ci_lower = cc_mean
+                        cc_ci_upper = cc_mean
+                else:
+                    cc_mean = np.nan
+                    cc_std = np.nan
+                    cc_var = np.nan
+                    cc_cv = np.nan
+                    cc_min = np.nan
+                    cc_max = np.nan
+                    cc_median = np.nan
+                    cc_q25 = np.nan
+                    cc_q75 = np.nan
+                    cc_iqr = np.nan
+                    cc_cvar = np.nan
+                    cc_ci_lower = np.nan
+                    cc_ci_upper = np.nan
+                
+                # CD rate statistics
+                if len(cd_arr) > 0:
+                    cd_mean = np.mean(cd_arr)
+                    cd_std = np.std(cd_arr, ddof=1)
+                    cd_var = np.var(cd_arr, ddof=1)
+                    cd_cv = cd_std / cd_mean if cd_mean != 0 else np.nan
+                    cd_min = np.min(cd_arr)
+                    cd_max = np.max(cd_arr)
+                    cd_median = np.median(cd_arr)
+                    cd_q25 = np.percentile(cd_arr, 25)
+                    cd_q75 = np.percentile(cd_arr, 75)
+                    cd_iqr = cd_q75 - cd_q25
+                    cd_cvar = calculate_cvar(cd_arr, alpha=0.05)
+                    
+                    if n > 1:
+                        ci = stats.t.interval(0.95, n-1, loc=cd_mean, scale=cd_std/np.sqrt(n))
+                        cd_ci_lower = max(0, ci[0])
+                        cd_ci_upper = min(1, ci[1])
+                    else:
+                        cd_ci_lower = cd_mean
+                        cd_ci_upper = cd_mean
+                else:
+                    cd_mean = np.nan
+                    cd_std = np.nan
+                    cd_var = np.nan
+                    cd_cv = np.nan
+                    cd_min = np.nan
+                    cd_max = np.nan
+                    cd_median = np.nan
+                    cd_q25 = np.nan
+                    cd_q75 = np.nan
+                    cd_iqr = np.nan
+                    cd_cvar = np.nan
+                    cd_ci_lower = np.nan
+                    cd_ci_upper = np.nan
+                
+                # Variance comparisons with reference agents
+                # Initialize all comparison columns to NaN
+                variance_comparisons = {}
+                for ref_idx, ref_name in reference_agents.items():
+                    variance_comparisons[f'vs_{ref_name}_var_ratio'] = np.nan
+                    variance_comparisons[f'vs_{ref_name}_levene_stat'] = np.nan
+                    variance_comparisons[f'vs_{ref_name}_levene_p'] = np.nan
+                    variance_comparisons[f'vs_{ref_name}_levene_sig'] = np.nan
+                    variance_comparisons[f'vs_{ref_name}_f_stat'] = np.nan
+                    variance_comparisons[f'vs_{ref_name}_f_p'] = np.nan
+                
+                # Perform comparisons for each reference agent
+                for ref_idx, ref_name in reference_agents.items():
+                    # Skip comparison if this agent is the reference agent
+                    if agent_idx == ref_idx:
+                        continue
+                    
+                    if ref_idx in reference_scores and noise in reference_scores[ref_idx]:
+                        ref_scores = reference_scores[ref_idx][noise]
+                        
+                        # Perform Levene's test for variance equality
+                        try:
+                            levene_stat, levene_p = stats.levene(score_arr, ref_scores)
+                            
+                            # F-test for variance (ratio of variances)
+                            ref_var = np.var(ref_scores, ddof=1)
+                            if ref_var > 0:
+                                f_stat = score_var / ref_var if score_var >= ref_var else ref_var / score_var
+                                df1 = len(score_arr) - 1
+                                df2 = len(ref_scores) - 1
+                                if score_var >= ref_var:
+                                    f_p = 2 * (1 - stats.f.cdf(f_stat, df1, df2))
+                                else:
+                                    f_p = 2 * (1 - stats.f.cdf(f_stat, df2, df1))
+                            else:
+                                f_stat = np.nan
+                                f_p = np.nan
+                            
+                            var_ratio = score_var / ref_var if ref_var > 0 else np.nan
+                            
+                            variance_comparisons[f'vs_{ref_name}_var_ratio'] = var_ratio
+                            variance_comparisons[f'vs_{ref_name}_levene_stat'] = levene_stat
+                            variance_comparisons[f'vs_{ref_name}_levene_p'] = levene_p
+                            variance_comparisons[f'vs_{ref_name}_levene_sig'] = levene_p < 0.05
+                            variance_comparisons[f'vs_{ref_name}_f_stat'] = f_stat
+                            variance_comparisons[f'vs_{ref_name}_f_p'] = f_p
+                        except Exception as e:
+                            # If comparison fails, leave as NaN (already initialized)
+                            pass
+                
+                # Create row entry
+                row = {
+                    'pool': pool_name.capitalize(),
+                    'agent_index': agent_idx,
+                    'agent_name': agent_display_name,
+                    'agent_dir': agent_dir_name,
+                    'noise_level': noise,
+                    'n_repetitions': n,
+                    
+                    # Score metrics
+                    'score_mean': score_mean,
+                    'score_std': score_std,
+                    'score_variance': score_var,
+                    'score_cv': score_cv,
+                    'score_min': score_min,
+                    'score_max': score_max,
+                    'score_median': score_median,
+                    'score_q25': score_q25,
+                    'score_q75': score_q75,
+                    'score_iqr': score_iqr,
+                    'score_ci_lower': score_ci_lower,
+                    'score_ci_upper': score_ci_upper,
+                    'score_cvar_5pct': score_cvar,
+                    
+                    # CC rate metrics
+                    'cc_rate_mean': cc_mean,
+                    'cc_rate_std': cc_std,
+                    'cc_rate_variance': cc_var,
+                    'cc_rate_cv': cc_cv,
+                    'cc_rate_min': cc_min,
+                    'cc_rate_max': cc_max,
+                    'cc_rate_median': cc_median,
+                    'cc_rate_q25': cc_q25,
+                    'cc_rate_q75': cc_q75,
+                    'cc_rate_iqr': cc_iqr,
+                    'cc_rate_ci_lower': cc_ci_lower,
+                    'cc_rate_ci_upper': cc_ci_upper,
+                    'cc_rate_cvar_5pct': cc_cvar,
+                    
+                    # CD rate metrics
+                    'cd_rate_mean': cd_mean,
+                    'cd_rate_std': cd_std,
+                    'cd_rate_variance': cd_var,
+                    'cd_rate_cv': cd_cv,
+                    'cd_rate_min': cd_min,
+                    'cd_rate_max': cd_max,
+                    'cd_rate_median': cd_median,
+                    'cd_rate_q25': cd_q25,
+                    'cd_rate_q75': cd_q75,
+                    'cd_rate_iqr': cd_iqr,
+                    'cd_rate_ci_lower': cd_ci_lower,
+                    'cd_rate_ci_upper': cd_ci_upper,
+                    'cd_rate_cvar_5pct': cd_cvar,
+                }
+                
+                # Add variance comparisons
+                row.update(variance_comparisons)
+                
+                comprehensive_data.append(row)
+    
+    # Create DataFrame
+    df = pd.DataFrame(comprehensive_data)
+    
+    # Sort by pool, agent_index, noise_level
+    df = df.sort_values(['pool', 'agent_index', 'noise_level']).reset_index(drop=True)
+    
+    # Save to CSV
+    output_path = analysis_dir / 'comprehensive_analysis.csv'
+    df.to_csv(output_path, index=False)
+    
+    print(f"\n  ✓ Comprehensive analysis CSV saved to {output_path}")
+    print(f"  ✓ Total rows: {len(df)}")
+    print(f"  ✓ Columns: {len(df.columns)}")
+    
+    return df
 
 
 if __name__ == "__main__":
