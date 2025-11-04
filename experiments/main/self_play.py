@@ -1,4 +1,3 @@
-from typing import Any
 from tournament.handler import FileSystemHandler
 from tournament.tournament import NoiseTournament
 import multiprocessing
@@ -113,19 +112,18 @@ strategies = [
 ]
 
 def run_self_play_experiment(strategies):
-    """Run self-play experiments where each strategy plays against all strategies (including itself)."""
-    for i, strategy in enumerate(strategies):
-        handler = FileSystemHandler(root_dir=f"results/sp/{i}_{strategy.__class__.__name__}")
-        noise_tournament = NoiseTournament(
-            players=[strategy] + strategies,  # Strategy plays against all strategies (including itself)
-            noise_levels=noise_levels,
-            repetitions=repetitions,
-            seed=seed,
-            callback=handler.save_results,
-            skip_callback=handler.skip_run,
-        )
-        noise_tournament.run(turns=turns, processes=processes)
-        print(f"Results are saved in the '{handler.root_dir}' directory.")
+    """Run a single round-robin tournament with all strategies."""
+    handler = FileSystemHandler(root_dir="results/sp")
+    noise_tournament = NoiseTournament(
+        players=strategies,  # All strategies play against each other in round-robin
+        noise_levels=noise_levels,
+        repetitions=repetitions,
+        seed=seed,
+        callback=handler.save_results,
+        skip_callback=handler.skip_run,
+    )
+    noise_tournament.run(turns=turns, processes=processes)
+    print(f"Results are saved in the '{handler.root_dir}' directory.")
 
 
 if __name__ == "__main__":
