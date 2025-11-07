@@ -264,6 +264,20 @@ class FastPSRL(PSRL):
     value_iteration_steps = 20  # Fewer iterations for faster computation
 
 
+class CooperativePSRL(PSRL):
+    """
+    Cooperative PSRL variant where exploitation (DC) gives 0 reward,
+    making cooperation (CC) the highest reward outcome.
+    """
+    name = "Cooperative PSRL"
+    
+    def receive_match_attributes(self):
+        """Receive game payoff matrix with modified DC reward."""
+        (self.R, self.P, self.S, self.T) = self.match_attributes["game"].RPST()
+        # Create payoff matrix with DC reward set to 0
+        self.payoff_matrix = np.array([[self.R, self.S], [0, self.P]], dtype=np.float32)
+
+
 if __name__ == "__main__":
     import axelrod as axl
     import time
@@ -348,17 +362,7 @@ if __name__ == "__main__":
     
     try:
         from qlearner import JaxQLearner
-        import importlib.util
-        import sys
-        import os
-        
-        # Import DynaQ from dyna-Q.py (hyphenated filename)
-        dyna_path = os.path.join(os.path.dirname(__file__), "dyna-Q.py")
-        spec = importlib.util.spec_from_file_location("dynaq", dyna_path)
-        dynaq_module = importlib.util.module_from_spec(spec)
-        sys.modules["dynaq"] = dynaq_module
-        spec.loader.exec_module(dynaq_module)
-        DynaQ = dynaq_module.DynaQ
+        from dynaQ import DynaQ
     except Exception as e:
         print(f"Warning: Could not import comparison agents: {e}")
         print("Skipping comparison tests...")

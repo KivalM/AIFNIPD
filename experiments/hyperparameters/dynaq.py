@@ -3,21 +3,12 @@ from tournament.tournament import NoiseTournament
 from experiments import static_pool, learn_pool
 import itertools
 
+from agents.dynaQ import DynaQ
 import axelrod as axl
 import numpy as np
 import os
 import random
 import tqdm
-
-# Import DynaQ from hyphenated filename
-import importlib.util
-import sys
-
-spec = importlib.util.spec_from_file_location("dynaq_module", "src/agents/dyna-Q.py")
-dynaq_module = importlib.util.module_from_spec(spec)
-sys.modules["dynaq_module"] = dynaq_module
-spec.loader.exec_module(dynaq_module)
-DynaQ = dynaq_module.DynaQ
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))

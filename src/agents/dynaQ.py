@@ -234,6 +234,20 @@ class CautiousDynaQ(DynaQ):
     planning_steps = 50
 
 
+class CooperativeDynaQ(DynaQ):
+    """
+    Cooperative Dyna-Q variant where exploitation (DC) gives 0 reward,
+    making cooperation (CC) the highest reward outcome.
+    """
+    name = "Cooperative Dyna-Q"
+    
+    def receive_match_attributes(self):
+        """Receive game payoff matrix with modified DC reward."""
+        (self.R, self.P, self.S, self.T) = self.match_attributes["game"].RPST()
+        # Create payoff matrix with DC reward set to 0
+        self.payoff_matrix = np.array([[self.R, self.S], [0, self.P]], dtype=np.float32)
+
+
 if __name__ == "__main__":
     import axelrod as axl
     import time

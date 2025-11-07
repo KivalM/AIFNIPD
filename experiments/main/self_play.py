@@ -5,8 +5,9 @@ from agents.aif.jax.five_state import JaxFiveStateAgent
 from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
 from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
-from agents.qlearner import JaxQLearner
-from agents.qlearner import CooperativeQLearner
+from agents.qlearner import JaxQLearner, CooperativeQLearner
+from agents.psrl import PSRL, CooperativePSRL
+from agents.dynaQ import DynaQ, CooperativeDynaQ
 import axelrod as axl
 import numpy as np
 
@@ -60,6 +61,28 @@ strategies = [
         discount_rate=0.5,
         initial_variance=1.0,
         reward_variance=1.0,
+    ),
+    DynaQ(
+        learning_rate=0.1,
+        discount_rate=0.9,
+        action_selection_parameter=0.1,
+        planning_steps=5,
+    ),
+    CooperativeDynaQ(
+        learning_rate=0.1,
+        discount_rate=0.9,
+        action_selection_parameter=0.1,
+        planning_steps=5,
+    ),
+    PSRL(
+        prior_strength=0.5,
+        discount_rate=0.95,
+        value_iteration_steps=50,
+    ),
+    CooperativePSRL(
+        prior_strength=0.5,
+        discount_rate=0.95,
+        value_iteration_steps=50,
     ),
     JaxFiveStateAgentNoisy(
         pB_scale=1,
