@@ -19,10 +19,10 @@ seed = 42
 np.random.seed(seed)
 random.seed(seed)
 
-# Agent parameters (27 Combinations)
+# Agent parameters (12 Combinations)
 prior_strengths = [0.5, 1.0, 2.0]
-discount_rates = [0.5, 0.9, 0.95]
-value_iteration_steps = [20, 50, 100]
+discount_rates = [0.5, 0.9]
+value_iteration_steps = [50, 100]
 
 def run_search():
     # Create all combinations

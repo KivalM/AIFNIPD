@@ -12,6 +12,8 @@ dependencies = [
     "gcloud>=0.18.3",
     "ipykernel>=6.30.1",
     "jax>=0.7.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
     "seaborn>=0.13.2",
     "inferactively-pymdp",
     "wandb>=0.21.1",
