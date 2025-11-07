@@ -10,6 +10,13 @@ from agents.psrl import PSRL, CooperativePSRL
 from agents.dynaQ import DynaQ, CooperativeDynaQ
 import axelrod as axl
 import numpy as np
+from pathlib import Path
+from experiments import (
+    generate_selfplay_heatmaps,
+    create_combined_heatmap_grid,
+    export_matrices_to_csv,
+    setup_publication_style,
+)
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
@@ -149,9 +156,102 @@ def run_self_play_experiment(strategies):
     print(f"Results are saved in the '{handler.root_dir}' directory.")
 
 
+def analyze_results():
+    """Analyze and visualize self-play tournament results."""
+    print("\n" + "="*60)
+    print("Analyzing Self-Play Tournament Results")
+    print("="*60)
+    
+    # Setup
+    sp_dir = Path("results/sp")
+    output_dir = Path("results/sp/heatmaps")
+    csv_output_dir = Path("results/sp/matrices")
+    
+    # Agent rename map for cleaner labels
+    rename_map = {
+        0: 'AIF-R',           # JaxFiveStateAgent (standard)
+        1: 'AIF-C',           # JaxFiveStateAgent (nash)
+        2: 'QL-R',            # JaxQLearner
+        3: 'QL-C',            # CooperativeQLearner
+        4: 'BQL-R',           # JaxBayesianQLearner
+        5: 'BQL-C',           # CooperativeBQLearner
+        6: 'AIF-R-N',         # JaxFiveStateAgentNoisy (standard)
+        7: 'AIF-C-N',         # JaxFiveStateAgentNoisy (nash)
+        8: 'DBS',             # DBS
+        9: 'GTFT',            # GTFT
+        10: 'CTFT',           # ContriteTitForTat
+        11: 'AIF-R-U',        # JaxFiveStateAgentUtility (standard)
+        12: 'AIF-C-U',        # JaxFiveStateAgentUtility (nash)
+    }
+    
+    # Setup publication style
+    setup_publication_style(use_latex=False)
+    
+    # Generate individual heatmaps for each noise level
+    print("\n1. Generating individual heatmaps for each noise level...")
+    generate_selfplay_heatmaps(
+        sp_dir=sp_dir,
+        noise_levels=noise_levels,
+        output_dir=output_dir,
+        rename_map=rename_map,
+        figsize=(14, 12)
+    )
+    
+    # Generate combined grid plots
+    print("\n2. Generating combined grid plots...")
+    
+    print("  Creating CC rate grid...")
+    create_combined_heatmap_grid(
+        sp_dir=sp_dir,
+        noise_levels=noise_levels,
+        output_dir=output_dir,
+        metric='cc_rate',
+        rename_map=rename_map,
+        max_cols=3
+    )
+    
+    print("  Creating CD rate grid...")
+    create_combined_heatmap_grid(
+        sp_dir=sp_dir,
+        noise_levels=noise_levels,
+        output_dir=output_dir,
+        metric='cd_rate',
+        rename_map=rename_map,
+        max_cols=3
+    )
+    
+    print("  Creating score grid...")
+    create_combined_heatmap_grid(
+        sp_dir=sp_dir,
+        noise_levels=noise_levels,
+        output_dir=output_dir,
+        metric='score',
+        rename_map=rename_map,
+        max_cols=3
+    )
+    
+    # Export matrices to CSV for further analysis
+    print("\n3. Exporting matrices to CSV...")
+    export_matrices_to_csv(
+        sp_dir=sp_dir,
+        noise_levels=noise_levels,
+        output_dir=csv_output_dir,
+        rename_map=rename_map
+    )
+    
+    print("\n" + "="*60)
+    print("Analysis complete!")
+    print(f"Heatmaps saved to: {output_dir}")
+    print(f"CSV matrices saved to: {csv_output_dir}")
+    print("="*60)
+
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     
     # Run self-play experiments
     run_self_play_experiment(strategies)
+    
+    # Analyze results
+    analyze_results()
 

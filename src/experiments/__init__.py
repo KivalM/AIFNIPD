@@ -69,6 +69,18 @@ from .stats_utils import (
     create_variance_comparison_summary,
 )
 
+# Self-play utilities
+from .selfplay_utils import (
+    load_selfplay_results,
+    get_player_names,
+    calculate_pairwise_metrics,
+    create_agent_labels,
+    plot_heatmap,
+    generate_selfplay_heatmaps,
+    create_combined_heatmap_grid,
+    export_matrices_to_csv,
+)
+
 __all__ = [
     # Tournament pools
     'static_pool',
@@ -118,4 +130,13 @@ __all__ = [
     'load_agent_repetition_scores',
     'compare_agents_at_noise_level',
     'create_variance_comparison_summary',
+    # Self-play utilities
+    'load_selfplay_results',
+    'get_player_names',
+    'calculate_pairwise_metrics',
+    'create_agent_labels',
+    'plot_heatmap',
+    'generate_selfplay_heatmaps',
+    'create_combined_heatmap_grid',
+    'export_matrices_to_csv',
 ]
