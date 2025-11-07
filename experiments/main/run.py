@@ -87,28 +87,6 @@ strategies = [
         initial_variance=1.0,
         reward_variance=1.0,
     ),
-    DynaQ(
-        learning_rate=0.1,
-        discount_rate=0.9,
-        action_selection_parameter=0.1,
-        planning_steps=5,
-    ),
-    CooperativeDynaQ(
-        learning_rate=0.1,
-        discount_rate=0.9,
-        action_selection_parameter=0.1,
-        planning_steps=5,
-    ),
-    PSRL(
-        prior_strength=0.5,
-        discount_rate=0.95,
-        value_iteration_steps=50,
-    ),
-    CooperativePSRL(
-        prior_strength=0.5,
-        discount_rate=0.95,
-        value_iteration_steps=50,
-    ),
     JaxFiveStateAgentNoisy(
         pB_scale=1,
         gamma=1,
@@ -156,6 +134,28 @@ strategies = [
         update_interval=50,
         seed=seed,
         lr_B=1,
+    ),
+    DynaQ(
+        learning_rate=0.1,
+        discount_rate=0.9,
+        action_selection_parameter=0.1,
+        planning_steps=5,
+    ),
+    CooperativeDynaQ(
+        learning_rate=0.1,
+        discount_rate=0.9,
+        action_selection_parameter=0.1,
+        planning_steps=5,
+    ),
+    PSRL(
+        prior_strength=0.5,
+        discount_rate=0.95,
+        value_iteration_steps=50,
+    ),
+    CooperativePSRL(
+        prior_strength=0.5,
+        discount_rate=0.95,
+        value_iteration_steps=50,
     ),
 ]
 
