@@ -64,22 +64,24 @@ def get_player_names(sp_dir: Path) -> List[str]:
 def calculate_pairwise_metrics(
     df: pd.DataFrame,
     player_names: List[str]
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Calculate pairwise CC rate, CD rate, and score matrices from tournament results.
+    Calculate pairwise CC rate, CD rate, score, and normalized cooperation matrices from tournament results.
     
     Args:
         df: DataFrame with tournament results
         player_names: List of player names in order
         
     Returns:
-        Tuple of (cc_rate_matrix, cd_rate_matrix, score_matrix)
+        Tuple of (cc_rate_matrix, cd_rate_matrix, score_matrix, norm_coop_matrix)
         Each matrix is N×N where N is the number of players
     """
     n_players = len(player_names)
     cc_rate_matrix = np.zeros((n_players, n_players))
     cd_rate_matrix = np.zeros((n_players, n_players))
     score_matrix = np.zeros((n_players, n_players))
+    norm_coop_matrix = np.zeros((n_players, n_players))
+    norm_coop_matrix[:] = np.nan  # Initialize with NaN to handle division by zero
     
     # Create name to index mapping
     name_to_idx = {name: i for i, name in enumerate(player_names)}
@@ -107,11 +109,17 @@ def calculate_pairwise_metrics(
                 
                 cc_rate_matrix[player_idx, opponent_idx] = cc_count / total_turns
                 cd_rate_matrix[player_idx, opponent_idx] = cd_count / total_turns
+                
+                # Calculate normalized cooperation (CC / (CC + CD))
+                total_coop = cc_count + cd_count
+                if total_coop > 0:
+                    norm_coop_matrix[player_idx, opponent_idx] = cc_count / total_coop
+                # If total_coop == 0, leave as NaN
             
             # Mean score
             score_matrix[player_idx, opponent_idx] = matchup_df['Score'].mean()
     
-    return cc_rate_matrix, cd_rate_matrix, score_matrix
+    return cc_rate_matrix, cd_rate_matrix, score_matrix, norm_coop_matrix
 
 
 def create_agent_labels(
@@ -251,7 +259,7 @@ def generate_selfplay_heatmaps(
             continue
         
         # Calculate metrics
-        cc_matrix, cd_matrix, score_matrix = calculate_pairwise_metrics(df, player_names)
+        cc_matrix, cd_matrix, score_matrix, norm_coop_matrix = calculate_pairwise_metrics(df, player_names)
         
         # Create heatmaps
         # CC Rate heatmap
@@ -268,6 +276,23 @@ def generate_selfplay_heatmaps(
             annot=True,
             fmt='.3f',
             save_path=output_dir / f'cc_rate_noise_{noise:.2f}.pdf'
+        )
+        plt.close()
+        
+        # Normalized Cooperation heatmap
+        print(f"  Creating normalized cooperation heatmap...")
+        plot_heatmap(
+            norm_coop_matrix,
+            labels,
+            f'Normalized Cooperation (CC/(CC+CD)) at Noise {noise:.2f}',
+            cmap='RdYlGn',
+            vmin=0,
+            vmax=1,
+            cbar_label='Normalized Cooperation',
+            figsize=figsize,
+            annot=True,
+            fmt='.3f',
+            save_path=output_dir / f'norm_coop_noise_{noise:.2f}.pdf'
         )
         plt.close()
         
@@ -366,6 +391,12 @@ def create_combined_heatmap_grid(
         cbar_label = 'CD Rate'
         title_prefix = 'CD Rate'
         fmt = '.2f'
+    elif metric == 'norm_coop':
+        cmap = 'RdYlGn'
+        vmin, vmax = 0, 1
+        cbar_label = 'Normalized Cooperation'
+        title_prefix = 'Normalized Cooperation'
+        fmt = '.2f'
     else:  # score
         cmap = 'viridis'
         vmin, vmax = None, None
@@ -386,13 +417,15 @@ def create_combined_heatmap_grid(
             continue
         
         # Calculate metrics
-        cc_matrix, cd_matrix, score_matrix = calculate_pairwise_metrics(df, player_names)
+        cc_matrix, cd_matrix, score_matrix, norm_coop_matrix = calculate_pairwise_metrics(df, player_names)
         
         # Select the right matrix
         if metric == 'cc_rate':
             matrix = cc_matrix
         elif metric == 'cd_rate':
             matrix = cd_matrix
+        elif metric == 'norm_coop':
+            matrix = norm_coop_matrix
         else:
             matrix = score_matrix
         
@@ -469,17 +502,308 @@ def export_matrices_to_csv(
         if df.empty:
             continue
         
-        cc_matrix, cd_matrix, score_matrix = calculate_pairwise_metrics(df, player_names)
+        cc_matrix, cd_matrix, score_matrix, norm_coop_matrix = calculate_pairwise_metrics(df, player_names)
         
         # Convert to DataFrames with labels
         cc_df = pd.DataFrame(cc_matrix, index=labels, columns=labels)
         cd_df = pd.DataFrame(cd_matrix, index=labels, columns=labels)
         score_df = pd.DataFrame(score_matrix, index=labels, columns=labels)
+        norm_coop_df = pd.DataFrame(norm_coop_matrix, index=labels, columns=labels)
         
         # Save to CSV
         cc_df.to_csv(output_dir / f'cc_rate_noise_{noise:.2f}.csv')
         cd_df.to_csv(output_dir / f'cd_rate_noise_{noise:.2f}.csv')
         score_df.to_csv(output_dir / f'score_noise_{noise:.2f}.csv')
+        norm_coop_df.to_csv(output_dir / f'norm_coop_noise_{noise:.2f}.csv')
     
     print(f"✓ Matrices exported to {output_dir}")
+
+
+def generate_selfplay_comparison_tables(
+    sp_dir: Path,
+    output_dir: Path,
+    rename_map: Optional[Dict[int, str]] = None,
+    noise_levels: List[float] = [0.0, 0.05]
+):
+    """
+    Generate formatted comparison tables for self-play tournament results.
+    
+    Creates tables comparing agent performance at different noise levels,
+    showing mean ± std (IQR) format similar to main tournament analysis.
+    
+    Args:
+        sp_dir: Path to self-play results directory
+        output_dir: Directory to save comparison tables
+        rename_map: Optional mapping from agent index to display name
+        noise_levels: List of noise levels to compare (default: [0.0, 0.05])
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get player names
+    player_names = get_player_names(sp_dir)
+    if not player_names:
+        print("No player names found!")
+        return
+    
+    n_players = len(player_names)
+    labels = create_agent_labels(player_names, rename_map)
+    
+    # Prepare data structures for each metric
+    metrics = {
+        'cc_rate': {'title': 'CC Rate', 'filename': 'selfplay_cc_rate_comparison.csv'},
+        'norm_coop': {'title': 'Normalized Cooperation', 'filename': 'selfplay_norm_coop_comparison.csv'},
+        'cd_rate': {'title': 'CD Rate', 'filename': 'selfplay_cd_rate_comparison.csv'},
+        'score': {'title': 'Score', 'filename': 'selfplay_score_comparison.csv'}
+    }
+    
+    for metric_key, metric_info in metrics.items():
+        print(f"  Generating {metric_info['title']} comparison table...")
+        
+        comparison_data = []
+        
+        for player_idx, (player_name, label) in enumerate(zip(player_names, labels)):
+            # Collect values for each noise level
+            noise_data = {}
+            
+            for noise in noise_levels:
+                df = load_selfplay_results(sp_dir, noise)
+                if df.empty:
+                    continue
+                
+                # Calculate metrics
+                cc_matrix, cd_matrix, score_matrix, norm_coop_matrix = calculate_pairwise_metrics(df, player_names)
+                
+                # Select the appropriate matrix
+                if metric_key == 'cc_rate':
+                    matrix = cc_matrix
+                elif metric_key == 'norm_coop':
+                    matrix = norm_coop_matrix
+                elif metric_key == 'cd_rate':
+                    matrix = cd_matrix
+                else:  # score
+                    matrix = score_matrix
+                
+                # Get values for this agent against all opponents (excluding self)
+                agent_values = []
+                for opp_idx in range(n_players):
+                    if opp_idx != player_idx:  # Exclude self-play
+                        value = matrix[player_idx, opp_idx]
+                        if not np.isnan(value):
+                            agent_values.append(value)
+                
+                if agent_values:
+                    values_arr = np.array(agent_values)
+                    noise_data[noise] = {
+                        'mean': np.mean(values_arr),
+                        'std': np.std(values_arr, ddof=1) if len(values_arr) > 1 else 0,
+                        'q25': np.percentile(values_arr, 25),
+                        'q75': np.percentile(values_arr, 75),
+                        'iqr': np.percentile(values_arr, 75) - np.percentile(values_arr, 25)
+                    }
+            
+            # If we have data for both noise levels, create comparison entry
+            if len(noise_data) == len(noise_levels):
+                noise_0_data = noise_data[noise_levels[0]]
+                noise_1_data = noise_data[noise_levels[1]]
+                
+                comparison_data.append({
+                    'Agent': label,
+                    f'{metric_info["title"]}_{noise_levels[0]:.2f}': noise_0_data['mean'],
+                    f'StdDev_{noise_levels[0]:.2f}': noise_0_data['std'],
+                    f'IQR_{noise_levels[0]:.2f}': noise_0_data['iqr'],
+                    f'{metric_info["title"]}_{noise_levels[1]:.2f}': noise_1_data['mean'],
+                    f'StdDev_{noise_levels[1]:.2f}': noise_1_data['std'],
+                    f'IQR_{noise_levels[1]:.2f}': noise_1_data['iqr'],
+                    'Difference': noise_1_data['mean'] - noise_0_data['mean']
+                })
+        
+        if comparison_data:
+            # Create DataFrame
+            df = pd.DataFrame(comparison_data)
+            df = df.sort_values('Agent')
+            
+            # Save raw version
+            raw_filename = metric_info['filename'].replace('.csv', '_raw.csv')
+            df.to_csv(output_dir / raw_filename, index=False)
+            
+            # Create formatted version
+            formatted_data = []
+            for _, row in df.iterrows():
+                # Construct column names
+                col_0_name = f'{metric_info["title"]}_{noise_levels[0]:.2f}'
+                col_1_name = f'{metric_info["title"]}_{noise_levels[1]:.2f}'
+                std_0_name = f'StdDev_{noise_levels[0]:.2f}'
+                std_1_name = f'StdDev_{noise_levels[1]:.2f}'
+                iqr_0_name = f'IQR_{noise_levels[0]:.2f}'
+                iqr_1_name = f'IQR_{noise_levels[1]:.2f}'
+                
+                formatted_data.append({
+                    'Agent': row['Agent'],
+                    col_0_name: 
+                        f"{row[col_0_name]:.4f} ± "
+                        f"{row[std_0_name]:.4f} "
+                        f"(IQR: {row[iqr_0_name]:.4f})",
+                    col_1_name: 
+                        f"{row[col_1_name]:.4f} ± "
+                        f"{row[std_1_name]:.4f} "
+                        f"(IQR: {row[iqr_1_name]:.4f})",
+                    'Difference': f"{row['Difference']:+.4f}"
+                })
+            
+            formatted_df = pd.DataFrame(formatted_data)
+            formatted_df.to_csv(output_dir / metric_info['filename'], index=False)
+            
+            print(f"    ✓ Saved {metric_info['filename']}")
+    
+    print(f"  ✓ All comparison tables saved to {output_dir}")
+
+
+def generate_selfplay_diagonal_comparison_tables(
+    sp_dir: Path,
+    output_dir: Path,
+    rename_map: Optional[Dict[int, str]] = None,
+    noise_levels: List[float] = [0.0, 0.05]
+):
+    """
+    Generate formatted comparison tables for self-play diagonal (agent vs itself).
+    
+    Creates tables showing agent performance when playing against itself,
+    showing mean ± std (IQR) format across repetitions.
+    
+    Args:
+        sp_dir: Path to self-play results directory
+        output_dir: Directory to save comparison tables
+        rename_map: Optional mapping from agent index to display name
+        noise_levels: List of noise levels to compare (default: [0.0, 0.05])
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get player names
+    player_names = get_player_names(sp_dir)
+    if not player_names:
+        print("No player names found!")
+        return
+    
+    n_players = len(player_names)
+    labels = create_agent_labels(player_names, rename_map)
+    
+    # Prepare data structures for each metric
+    metrics = {
+        'cc_rate': {'title': 'CC Rate', 'filename': 'selfplay_diagonal_cc_rate_comparison.csv'},
+        'norm_coop': {'title': 'Normalized Cooperation', 'filename': 'selfplay_diagonal_norm_coop_comparison.csv'},
+        'cd_rate': {'title': 'CD Rate', 'filename': 'selfplay_diagonal_cd_rate_comparison.csv'},
+        'score': {'title': 'Score', 'filename': 'selfplay_diagonal_score_comparison.csv'}
+    }
+    
+    for metric_key, metric_info in metrics.items():
+        print(f"  Generating diagonal {metric_info['title']} comparison table...")
+        
+        comparison_data = []
+        
+        for player_idx, (player_name, label) in enumerate(zip(player_names, labels)):
+            # Collect diagonal values (self-play) for each noise level
+            noise_data = {}
+            
+            for noise in noise_levels:
+                df = load_selfplay_results(sp_dir, noise)
+                if df.empty:
+                    continue
+                
+                # Filter for self-play matches (player vs itself)
+                self_play_df = df[
+                    (df['Player name'] == player_name) & 
+                    (df['Opponent name'] == player_name)
+                ]
+                
+                if self_play_df.empty:
+                    continue
+                
+                # Calculate metric per repetition
+                rep_values = []
+                for rep in self_play_df['repetition'].unique():
+                    rep_data = self_play_df[self_play_df['repetition'] == rep]
+                    
+                    if metric_key == 'score':
+                        rep_values.append(rep_data['Score'].mean())
+                    else:
+                        total_turns = rep_data['Turns'].sum()
+                        if total_turns > 0:
+                            if metric_key == 'cc_rate':
+                                cc_count = rep_data['CC count'].sum()
+                                rep_values.append(cc_count / total_turns)
+                            elif metric_key == 'cd_rate':
+                                cd_count = rep_data['CD count'].sum()
+                                rep_values.append(cd_count / total_turns)
+                            elif metric_key == 'norm_coop':
+                                cc_count = rep_data['CC count'].sum()
+                                cd_count = rep_data['CD count'].sum()
+                                total_coop = cc_count + cd_count
+                                if total_coop > 0:
+                                    rep_values.append(cc_count / total_coop)
+                
+                if rep_values:
+                    values_arr = np.array(rep_values)
+                    noise_data[noise] = {
+                        'mean': np.mean(values_arr),
+                        'std': np.std(values_arr, ddof=1) if len(values_arr) > 1 else 0,
+                        'q25': np.percentile(values_arr, 25),
+                        'q75': np.percentile(values_arr, 75),
+                        'iqr': np.percentile(values_arr, 75) - np.percentile(values_arr, 25)
+                    }
+            
+            # If we have data for both noise levels, create comparison entry
+            if len(noise_data) == len(noise_levels):
+                noise_0_data = noise_data[noise_levels[0]]
+                noise_1_data = noise_data[noise_levels[1]]
+                
+                comparison_data.append({
+                    'Agent': label,
+                    f'{metric_info["title"]}_{noise_levels[0]:.2f}': noise_0_data['mean'],
+                    f'StdDev_{noise_levels[0]:.2f}': noise_0_data['std'],
+                    f'IQR_{noise_levels[0]:.2f}': noise_0_data['iqr'],
+                    f'{metric_info["title"]}_{noise_levels[1]:.2f}': noise_1_data['mean'],
+                    f'StdDev_{noise_levels[1]:.2f}': noise_1_data['std'],
+                    f'IQR_{noise_levels[1]:.2f}': noise_1_data['iqr'],
+                    'Difference': noise_1_data['mean'] - noise_0_data['mean']
+                })
+        
+        if comparison_data:
+            # Create DataFrame
+            df = pd.DataFrame(comparison_data)
+            df = df.sort_values('Agent')
+            
+            # Save raw version
+            raw_filename = metric_info['filename'].replace('.csv', '_raw.csv')
+            df.to_csv(output_dir / raw_filename, index=False)
+            
+            # Create formatted version
+            formatted_data = []
+            for _, row in df.iterrows():
+                # Construct column names
+                col_0_name = f'{metric_info["title"]}_{noise_levels[0]:.2f}'
+                col_1_name = f'{metric_info["title"]}_{noise_levels[1]:.2f}'
+                std_0_name = f'StdDev_{noise_levels[0]:.2f}'
+                std_1_name = f'StdDev_{noise_levels[1]:.2f}'
+                iqr_0_name = f'IQR_{noise_levels[0]:.2f}'
+                iqr_1_name = f'IQR_{noise_levels[1]:.2f}'
+                
+                formatted_data.append({
+                    'Agent': row['Agent'],
+                    col_0_name: 
+                        f"{row[col_0_name]:.4f} ± "
+                        f"{row[std_0_name]:.4f} "
+                        f"(IQR: {row[iqr_0_name]:.4f})",
+                    col_1_name: 
+                        f"{row[col_1_name]:.4f} ± "
+                        f"{row[std_1_name]:.4f} "
+                        f"(IQR: {row[iqr_1_name]:.4f})",
+                    'Difference': f"{row['Difference']:+.4f}"
+                })
+            
+            formatted_df = pd.DataFrame(formatted_data)
+            formatted_df.to_csv(output_dir / metric_info['filename'], index=False)
+            
+            print(f"    ✓ Saved {metric_info['filename']}")
+    
+    print(f"  ✓ All diagonal comparison tables saved to {output_dir}")
 

@@ -272,6 +272,33 @@ def plot_cd_rate_vs_noise(
     )
 
 
+def plot_normalized_cooperation_vs_noise(
+    norm_coop_data: pd.DataFrame,
+    title: str = 'Normalized Cooperation vs Noise Level',
+    **kwargs
+) -> Tuple[Figure, Axes]:
+    """
+    Plot normalized cooperation rate (CC / (CC + CD)) vs noise level with confidence intervals.
+    
+    Args:
+        norm_coop_data: DataFrame with columns: agent_name, noise_level, mean_norm_coop, ci_lower, ci_upper
+        title: Plot title
+        **kwargs: Additional arguments passed to plot_metric_vs_noise
+        
+    Returns:
+        Tuple of (figure, axes)
+    """
+    return plot_metric_vs_noise(
+        data=norm_coop_data,
+        metric_col='mean_norm_coop',
+        ylabel='Normalized Cooperation',
+        title=title,
+        ylim=kwargs.pop('ylim', (-0.05, 1.05)),
+        xlim=kwargs.pop('xlim', (-0.015, 0.265)),
+        **kwargs
+    )
+
+
 def create_comparison_plots(
     static_data: pd.DataFrame,
     learning_data: pd.DataFrame,

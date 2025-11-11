@@ -503,3 +503,99 @@ def load_all_agents_cd_rates(
     
     result_df = pd.concat(all_results, ignore_index=True)
     return result_df[['agent_name', 'noise_level', 'mean_cd_rate', 'std_cd_rate', 'ci_lower', 'ci_upper', 'num_repetitions']]
+
+
+def calculate_normalized_cooperation(
+    pool_dir: Path,
+    agent_dir_name: str,
+    noise_levels: List[float]
+) -> pd.DataFrame:
+    """
+    Calculate normalized cooperation rate (CC / (CC + CD)) for an agent across all noise levels and repetitions.
+    
+    Args:
+        pool_dir: Path to the pool directory
+        agent_dir_name: Agent directory name
+        noise_levels: List of noise levels to analyze
+        
+    Returns:
+        DataFrame with columns: noise_level, mean_norm_coop, std_norm_coop, ci_lower, ci_upper, num_repetitions
+    """
+    results = []
+    
+    for noise in noise_levels:
+        df = load_tournament_results(pool_dir, agent_dir_name, noise)
+        if df.empty:
+            continue
+        
+        # Get normalized cooperation rate for player index 0
+        agent_data = df[df['Player index'] == 0]
+        
+        # Calculate normalized cooperation rate per repetition
+        norm_coop_rates = []
+        for rep in agent_data['repetition'].unique():
+            rep_data = agent_data[agent_data['repetition'] == rep]
+            cc_count = rep_data['CC count'].sum()
+            cd_count = rep_data['CD count'].sum()
+            total_coop = cc_count + cd_count
+            if total_coop > 0:
+                norm_coop_rates.append(cc_count / total_coop)
+            # If total_coop == 0, skip this repetition (no cooperation attempts)
+        
+        if not norm_coop_rates:
+            # No cooperation attempts across all repetitions
+            continue
+        
+        mean_norm_coop = np.mean(norm_coop_rates)
+        std_norm_coop = np.std(norm_coop_rates, ddof=1) if len(norm_coop_rates) > 1 else 0
+        n = len(norm_coop_rates)
+        
+        # Calculate 95% confidence interval using t-distribution
+        if n > 1:
+            ci = stats.t.interval(0.95, n-1, loc=mean_norm_coop, scale=std_norm_coop/np.sqrt(n))
+            ci_lower = max(0, ci[0])  # Normalized cooperation can't be negative
+            ci_upper = min(1, ci[1])  # Normalized cooperation can't exceed 1
+        else:
+            ci_lower = mean_norm_coop
+            ci_upper = mean_norm_coop
+        
+        results.append({
+            'noise_level': noise,
+            'mean_norm_coop': mean_norm_coop,
+            'std_norm_coop': std_norm_coop,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            'num_repetitions': n
+        })
+    
+    return pd.DataFrame(results)
+
+
+def load_all_agents_normalized_cooperation(
+    pool_dir: Path,
+    noise_levels: List[float]
+) -> pd.DataFrame:
+    """
+    Load normalized cooperation rates for all agents in a pool.
+    
+    Args:
+        pool_dir: Path to the pool directory
+        noise_levels: List of noise levels to analyze
+        
+    Returns:
+        DataFrame with columns: agent_name, noise_level, mean_norm_coop, std_norm_coop, ci_lower, ci_upper
+        agent_name includes index (e.g., "0_DBS", "1_DBS") to distinguish duplicates
+    """
+    agent_dirs = get_agent_dirs(pool_dir)
+    all_results = []
+    
+    for dir_name, display_name in agent_dirs:
+        norm_coop_df = calculate_normalized_cooperation(pool_dir, dir_name, noise_levels)
+        norm_coop_df['agent_name'] = display_name
+        all_results.append(norm_coop_df)
+    
+    if not all_results:
+        return pd.DataFrame()
+    
+    result_df = pd.concat(all_results, ignore_index=True)
+    return result_df[['agent_name', 'noise_level', 'mean_norm_coop', 'std_norm_coop', 'ci_lower', 'ci_upper', 'num_repetitions']]

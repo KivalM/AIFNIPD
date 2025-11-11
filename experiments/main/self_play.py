@@ -15,6 +15,8 @@ from experiments import (
     generate_selfplay_heatmaps,
     create_combined_heatmap_grid,
     export_matrices_to_csv,
+    generate_selfplay_comparison_tables,
+    generate_selfplay_diagonal_comparison_tables,
     setup_publication_style,
 )
 
@@ -204,6 +206,10 @@ def analyze_results():
         10: 'CTFT',           # ContriteTitForTat
         11: 'AIF-R-U',        # JaxFiveStateAgentUtility (standard)
         12: 'AIF-C-U',        # JaxFiveStateAgentUtility (nash)
+        13: 'DynaQ-R',        # DynaQ
+        14: 'DynaQ-C',        # CooperativeDynaQ
+        15: 'PSRL-R',        # PSRL
+        16: 'PSRL-C',        # CooperativePSRL
     }
     
     # Setup publication style
@@ -242,6 +248,16 @@ def analyze_results():
         max_cols=3
     )
     
+    print("  Creating normalized cooperation grid...")
+    create_combined_heatmap_grid(
+        sp_dir=sp_dir,
+        noise_levels=noise_levels,
+        output_dir=output_dir,
+        metric='norm_coop',
+        rename_map=rename_map,
+        max_cols=3
+    )
+    
     print("  Creating score grid...")
     create_combined_heatmap_grid(
         sp_dir=sp_dir,
@@ -261,10 +277,29 @@ def analyze_results():
         rename_map=rename_map
     )
     
+    # Generate comparison tables
+    print("\n4. Generating comparison tables...")
+    generate_selfplay_comparison_tables(
+        sp_dir=sp_dir,
+        output_dir=csv_output_dir,
+        rename_map=rename_map,
+        noise_levels=[0.0, 0.05]
+    )
+    
+    # Generate diagonal (self vs self) comparison tables
+    print("\n5. Generating diagonal (self-play) comparison tables...")
+    generate_selfplay_diagonal_comparison_tables(
+        sp_dir=sp_dir,
+        output_dir=csv_output_dir,
+        rename_map=rename_map,
+        noise_levels=[0.0, 0.05]
+    )
+    
     print("\n" + "="*60)
     print("Analysis complete!")
     print(f"Heatmaps saved to: {output_dir}")
     print(f"CSV matrices saved to: {csv_output_dir}")
+    print(f"Comparison tables saved to: {csv_output_dir}")
     print("="*60)
 
 

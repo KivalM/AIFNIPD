@@ -118,7 +118,7 @@ def action_pair_to_obs(action, opponent_action):
     return jnp.array([[idx]])
 
 @jit
-def step(rng_key, agent, obs_idx, empirical_prior):
+def step(rng_key, agent: AIFAgent, obs_idx, empirical_prior):
     qs = agent.infer_states(obs_idx, empirical_prior)
     qpi, _ = agent.infer_policies(qs)
     rng_key = jr.split(rng_key)

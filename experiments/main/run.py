@@ -22,11 +22,13 @@ from experiments import (
     load_all_agents_scores,
     load_all_agents_cc_rates,
     load_all_agents_cd_rates,
+    load_all_agents_normalized_cooperation,
     setup_publication_style,
     filter_data_by_agents,
     plot_scores_vs_noise,
     plot_cc_rate_vs_noise,
     plot_cd_rate_vs_noise,
+    plot_normalized_cooperation_vs_noise,
     load_agent_repetition_scores,
     compare_variances_pairwise,
     compare_variances_all,
@@ -251,17 +253,20 @@ def generate_plots():
         scores = load_all_agents_scores(pool_dir, noise_levels)
         cc_rates = load_all_agents_cc_rates(pool_dir, noise_levels)
         cd_rates = load_all_agents_cd_rates(pool_dir, noise_levels)
+        norm_coop = load_all_agents_normalized_cooperation(pool_dir, noise_levels)
         
         # Remove any duplicate entries (shouldn't happen but just in case)
         scores = scores.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
         cc_rates = cc_rates.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
         cd_rates = cd_rates.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
+        norm_coop = norm_coop.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
         
         # Generate plots for cooperative agents
         print(f"  Generating cooperative agents plots...")
         cooperative_scores = filter_data_by_agents(scores, cooperative_group, rename_map)
         cooperative_cc = filter_data_by_agents(cc_rates, cooperative_group, rename_map)
         cooperative_cd = filter_data_by_agents(cd_rates, cooperative_group, rename_map)
+        cooperative_norm_coop = filter_data_by_agents(norm_coop, cooperative_group, rename_map)
         
         # Debug: print unique agents in the filtered data
         print(f"    Cooperative agents: {sorted(cooperative_scores['agent_name'].unique())}")
@@ -280,6 +285,13 @@ def generate_plots():
             save_path=plots_dir / f'{pool_name}_cooperative_cc_rate'
         )
         
+        plot_normalized_cooperation_vs_noise(
+            cooperative_norm_coop,
+            title=f'{pool_name.capitalize()} Pool: Cooperative Agents Normalized Cooperation',
+            figsize=(10, 6),
+            save_path=plots_dir / f'{pool_name}_cooperative_norm_coop'
+        )
+        
         plot_cd_rate_vs_noise(
             cooperative_cd,
             title=f'{pool_name.capitalize()} Pool: Cooperative Agents CD Rate',
@@ -292,6 +304,7 @@ def generate_plots():
         rational_scores = filter_data_by_agents(scores, rational_group, rename_map)
         rational_cc = filter_data_by_agents(cc_rates, rational_group, rename_map)
         rational_cd = filter_data_by_agents(cd_rates, rational_group, rename_map)
+        rational_norm_coop = filter_data_by_agents(norm_coop, rational_group, rename_map)
         
         # Debug: print unique agents in the filtered data
         print(f"    Rational agents: {sorted(rational_scores['agent_name'].unique())}")
@@ -310,6 +323,13 @@ def generate_plots():
             save_path=plots_dir / f'{pool_name}_rational_cc_rate'
         )
         
+        plot_normalized_cooperation_vs_noise(
+            rational_norm_coop,
+            title=f'{pool_name.capitalize()} Pool: Rational Agents Normalized Cooperation',
+            figsize=(10, 6),
+            save_path=plots_dir / f'{pool_name}_rational_norm_coop'
+        )
+        
         plot_cd_rate_vs_noise(
             rational_cd,
             title=f'{pool_name.capitalize()} Pool: Rational Agents CD Rate',
@@ -322,6 +342,7 @@ def generate_plots():
         mixed_scores = filter_data_by_agents(scores, mixed_group, rename_map)
         mixed_cc = filter_data_by_agents(cc_rates, mixed_group, rename_map)
         mixed_cd = filter_data_by_agents(cd_rates, mixed_group, rename_map)
+        mixed_norm_coop = filter_data_by_agents(norm_coop, mixed_group, rename_map)
         
         # Debug: print unique agents in the filtered data
         print(f"    Mixed agents: {sorted(mixed_scores['agent_name'].unique())}")
@@ -338,6 +359,13 @@ def generate_plots():
             title=f'{pool_name.capitalize()} Pool: Cross-Type Comparison CC Rate',
             figsize=(10, 6),
             save_path=plots_dir / f'{pool_name}_mixed_cc_rate'
+        )
+        
+        plot_normalized_cooperation_vs_noise(
+            mixed_norm_coop,
+            title=f'{pool_name.capitalize()} Pool: Cross-Type Comparison Normalized Cooperation',
+            figsize=(10, 6),
+            save_path=plots_dir / f'{pool_name}_mixed_norm_coop'
         )
         
         plot_cd_rate_vs_noise(
@@ -769,13 +797,13 @@ def calculate_cvar(values: np.ndarray, alpha: float = 0.05) -> float:
 def calculate_metric_cvar(pool_dir: Path, agent_dir: str, noise_level: float, 
                          metric: str = 'score', alpha: float = 0.05) -> float:
     """
-    Calculate CVaR for a specific metric (score, cc_rate, or cd_rate).
+    Calculate CVaR for a specific metric (score, cc_rate, cd_rate, or norm_coop).
     
     Args:
         pool_dir: Path to pool directory
         agent_dir: Agent directory name
         noise_level: Noise level
-        metric: 'score', 'cc_rate', or 'cd_rate'
+        metric: 'score', 'cc_rate', 'cd_rate', or 'norm_coop'
         alpha: Confidence level
         
     Returns:
@@ -806,6 +834,12 @@ def calculate_metric_cvar(pool_dir: Path, agent_dir: str, noise_level: float,
             cd_count = rep_data['CD count'].sum()
             if total_turns > 0:
                 values.append(cd_count / total_turns)
+        elif metric == 'norm_coop':
+            cc_count = rep_data['CC count'].sum()
+            cd_count = rep_data['CD count'].sum()
+            total_coop = cc_count + cd_count
+            if total_coop > 0:
+                values.append(cc_count / total_coop)
     
     if values:
         return calculate_cvar(np.array(values), alpha)
@@ -853,7 +887,8 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
             cvar_data = {
                 'scores': {},
                 'cc_rates': {},
-                'cd_rates': {}
+                'cd_rates': {},
+                'norm_coop': {}
             }
             
             for agent_name, agent_idx in agents.items():
@@ -868,19 +903,23 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
                     score_cvars = []
                     cc_cvars = []
                     cd_cvars = []
+                    norm_coop_cvars = []
                     
                     for noise in noise_levels_list:
                         score_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'score')
                         cc_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'cc_rate')
                         cd_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'cd_rate')
+                        norm_coop_cvar = calculate_metric_cvar(pool_dir, agent_dir, noise, 'norm_coop')
                         
                         score_cvars.append(score_cvar)
                         cc_cvars.append(cc_cvar)
                         cd_cvars.append(cd_cvar)
+                        norm_coop_cvars.append(norm_coop_cvar)
                     
                     cvar_data['scores'][agent_name] = score_cvars
                     cvar_data['cc_rates'][agent_name] = cc_cvars
                     cvar_data['cd_rates'][agent_name] = cd_cvars
+                    cvar_data['norm_coop'][agent_name] = norm_coop_cvars
             
             # Plot CVaR for Scores
             fig, ax = plt.subplots(figsize=(10, 6))
@@ -911,6 +950,22 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
             ax.set_ylim(-0.05, 1.05)
             plt.tight_layout()
             plt.savefig(plots_subdir / f'{pool_name}_{strategy_type}_cvar_cc_rate.pdf', dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            # Plot CVaR for Normalized Cooperation
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for agent_name, values in cvar_data['norm_coop'].items():
+                ax.plot(noise_levels_list, values, marker='o', 
+                       label=agent_name, linewidth=2, markersize=6)
+            ax.set_xlabel('Noise Level', fontsize=11)
+            ax.set_ylabel('CVaR Normalized Cooperation (Worst 5%)', fontsize=11)
+            ax.set_title(f'{pool_name.capitalize()} Pool: {strategy_type.capitalize()} Architectures - CVaR Normalized Cooperation vs Noise', 
+                        fontsize=12, fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(-0.05, 1.05)
+            plt.tight_layout()
+            plt.savefig(plots_subdir / f'{pool_name}_{strategy_type}_cvar_norm_coop.pdf', dpi=300, bbox_inches='tight')
             plt.close()
             
             # Plot CVaR for CD Rates
@@ -995,6 +1050,7 @@ def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
                 score_values = []
                 cc_rate_values = []
                 cd_rate_values = []
+                norm_coop_values = []
                 
                 for rep in agent_data['repetition'].unique():
                     rep_data = agent_data[agent_data['repetition'] == rep]
@@ -1012,6 +1068,11 @@ def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
                     cd_count = rep_data['CD count'].sum()
                     if total_turns > 0:
                         cd_rate_values.append(cd_count / total_turns)
+                    
+                    # Normalized cooperation
+                    total_coop = cc_count + cd_count
+                    if total_coop > 0:
+                        norm_coop_values.append(cc_count / total_coop)
                 
                 if not score_values:
                     continue
@@ -1019,6 +1080,7 @@ def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
                 score_arr = np.array(score_values)
                 cc_arr = np.array(cc_rate_values) if cc_rate_values else np.array([])
                 cd_arr = np.array(cd_rate_values) if cd_rate_values else np.array([])
+                norm_coop_arr = np.array(norm_coop_values) if norm_coop_values else np.array([])
                 
                 n = len(score_arr)
                 
@@ -1115,6 +1177,42 @@ def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
                     cd_cvar = np.nan
                     cd_ci_lower = np.nan
                     cd_ci_upper = np.nan
+                
+                # Normalized cooperation statistics
+                if len(norm_coop_arr) > 0:
+                    norm_coop_mean = np.mean(norm_coop_arr)
+                    norm_coop_std = np.std(norm_coop_arr, ddof=1)
+                    norm_coop_var = np.var(norm_coop_arr, ddof=1)
+                    norm_coop_cv = norm_coop_std / norm_coop_mean if norm_coop_mean != 0 else np.nan
+                    norm_coop_min = np.min(norm_coop_arr)
+                    norm_coop_max = np.max(norm_coop_arr)
+                    norm_coop_median = np.median(norm_coop_arr)
+                    norm_coop_q25 = np.percentile(norm_coop_arr, 25)
+                    norm_coop_q75 = np.percentile(norm_coop_arr, 75)
+                    norm_coop_iqr = norm_coop_q75 - norm_coop_q25
+                    norm_coop_cvar = calculate_cvar(norm_coop_arr, alpha=0.05)
+                    
+                    if len(norm_coop_arr) > 1:
+                        ci = stats.t.interval(0.95, len(norm_coop_arr)-1, loc=norm_coop_mean, scale=norm_coop_std/np.sqrt(len(norm_coop_arr)))
+                        norm_coop_ci_lower = max(0, ci[0])
+                        norm_coop_ci_upper = min(1, ci[1])
+                    else:
+                        norm_coop_ci_lower = norm_coop_mean
+                        norm_coop_ci_upper = norm_coop_mean
+                else:
+                    norm_coop_mean = np.nan
+                    norm_coop_std = np.nan
+                    norm_coop_var = np.nan
+                    norm_coop_cv = np.nan
+                    norm_coop_min = np.nan
+                    norm_coop_max = np.nan
+                    norm_coop_median = np.nan
+                    norm_coop_q25 = np.nan
+                    norm_coop_q75 = np.nan
+                    norm_coop_iqr = np.nan
+                    norm_coop_cvar = np.nan
+                    norm_coop_ci_lower = np.nan
+                    norm_coop_ci_upper = np.nan
                 
                 # Variance comparisons with reference agents
                 # Initialize all comparison columns to NaN
@@ -1219,6 +1317,21 @@ def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
                     'cd_rate_ci_lower': cd_ci_lower,
                     'cd_rate_ci_upper': cd_ci_upper,
                     'cd_rate_cvar_5pct': cd_cvar,
+                    
+                    # Normalized cooperation metrics
+                    'norm_coop_mean': norm_coop_mean,
+                    'norm_coop_std': norm_coop_std,
+                    'norm_coop_variance': norm_coop_var,
+                    'norm_coop_cv': norm_coop_cv,
+                    'norm_coop_min': norm_coop_min,
+                    'norm_coop_max': norm_coop_max,
+                    'norm_coop_median': norm_coop_median,
+                    'norm_coop_q25': norm_coop_q25,
+                    'norm_coop_q75': norm_coop_q75,
+                    'norm_coop_iqr': norm_coop_iqr,
+                    'norm_coop_ci_lower': norm_coop_ci_lower,
+                    'norm_coop_ci_upper': norm_coop_ci_upper,
+                    'norm_coop_cvar_5pct': norm_coop_cvar,
                 }
                 
                 # Add variance comparisons
