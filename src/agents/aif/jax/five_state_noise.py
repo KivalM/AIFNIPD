@@ -3,6 +3,7 @@ import jax.tree_util as jtu
 from jax import nn, vmap, lax, jit
 from jax import random as jr
 import numpy as np
+from collections import deque
 
 from pymdp.envs import GridWorldEnv
 from pymdp.jax.task import PyMDPEnv
@@ -58,10 +59,10 @@ def make_agent(
     policy_len: int = 10,
     alpha: float = 1,
     gamma: float = 1,
-    noise: float = 0.0,
-    pB_scale: float = 100,
     bias: float = 0.5,
     preference: str = "standard",
+    pB_scale: float = 100,
+    noise: float = 0.0,
 ):
     A_1 = np.eye(num_states)
     P0 = np.eye(num_states-1)
@@ -162,23 +163,28 @@ class JaxFiveStateAgentNoisy(JointWrapper):
         lr_B: float = 1,
         alpha: float = 1,
         gamma: float = 1,
-        pB_scale: float = 100,
         bias: float = 0.5,
         preference: str = "standard",
+        pB_scale: float = 100,
     ) -> None:
         super().__init__()
         self.policy_len = policy_len
         self.update_interval = update_interval
         self.seed = seed
-        self.qs = []
-        self.obs = []
-        self.actions = []
+        # Use deques with appropriate maxlen for rolling window
+        # For N transitions: need N+1 beliefs/obs, N+1 actions (we slice off last)
+        self.qs = deque(maxlen=self.update_interval + 1)
+        self.obs = deque(maxlen=self.update_interval + 1)
+        self.actions = deque(maxlen=self.update_interval + 1)
+        self.qpi_history = []  # Store policy distributions
+        self.efe_history = []  # Store EFE values
         self.lr_B = lr_B
         self.alpha = alpha
         self.gamma = gamma
         self.pB_scale = pB_scale
         self.bias = bias
         self.preference = preference
+        self.step_count = 0  # Track steps since last update
         self.agent = self.make_agent()
         self.empirical_prior = self.agent.D
         self.set_seed(seed)
@@ -207,23 +213,48 @@ class JaxFiveStateAgentNoisy(JointWrapper):
         self.rng_key = jr.split(self.rng_key)[1]
         rng_key, obs_idx, empirical_prior, qs, action = step(self.rng_key, self.agent, obs_idx, self.empirical_prior)
         self.empirical_prior = empirical_prior
+        
+        # Append in original order: qs, obs, actions together
+        # action[t] is taken from qs[t], and results in obs[t+1], qs[t+1] 
         self.qs.append(qs)
         self.obs.append(obs_idx)
         self.actions.append(action)
-        if len(self.obs) % self.update_interval == 0:
-          beliefs = [jnp.array(self.qs).reshape(n_batches, len(self.qs), num_states)]
-          actions = [jnp.array(self.actions).reshape(n_batches, len(self.actions),1)[:, :-1, :]]
-          outcomes = [jnp.array(self.obs).reshape(n_batches, len(self.obs))]
-          self.agent = update_B(self.agent, beliefs, outcomes[0], actions[0], lr_B=self.lr_B)
-          self.qs = []
-          self.obs = []
-          self.actions = []
+        self.step_count += 1
+        
+        # Store EFE from infer_policies (compute it here since step() doesn't return it)
+        qpi, efe = self.agent.infer_policies(qs)
+        self.qpi_history.append(qpi)
+        self.efe_history.append(efe)
+        
+        # Update every N steps once we have enough data
+        # We need N+1 observations/beliefs but only N actions (exclude the last action that hasn't been executed yet)
+        if self.step_count >= self.update_interval and len(self.actions) >= self.update_interval and len(self.qs) >= self.update_interval + 1:
+            # Convert deques to arrays
+            qs_arr = jnp.array([q for q in self.qs])
+            obs_arr = jnp.array([o for o in self.obs])
+            act_arr = jnp.array([a for a in self.actions])
+            
+            # Reshape for batch processing
+            beliefs = [qs_arr.reshape(n_batches, len(self.qs), num_states)]
+            outcomes = obs_arr.reshape(n_batches, len(self.obs))
+            # Exclude last action - we haven't seen its result yet
+            actions = act_arr[:-1].reshape(n_batches, len(self.actions) - 1, 1)
+            
+            self.agent = update_B(self.agent, beliefs, outcomes, actions, lr_B=self.lr_B)
+            
+            self.qpi_history = []
+            self.efe_history = []
+            self.step_count = 0  # Reset counter after update
+        
         return Action.C if action[0][0] == C else Action.D
 
     def reset(self) -> None:  
-        self.qs = []
-        self.obs = []
-        self.actions = []
+        self.qs = deque(maxlen=self.update_interval + 1)
+        self.obs = deque(maxlen=self.update_interval + 1)
+        self.actions = deque(maxlen=self.update_interval + 1)
+        self.qpi_history = []
+        self.efe_history = []
+        self.step_count = 0
         self.empirical_prior = self.agent.D
         super().reset()
 
