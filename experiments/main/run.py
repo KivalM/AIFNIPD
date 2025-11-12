@@ -7,6 +7,7 @@ import multiprocessing
 from agents.aif.jax.five_state import JaxFiveStateAgent
 from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
 from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
+from agents.aif.jax.five_state_deterministic import JaxFiveStateAgentDeterministic
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
 from agents.qlearner import JaxQLearner, CooperativeQLearner
 from agents.psrl import PSRL, CooperativePSRL
@@ -52,8 +53,8 @@ strategies = [
         alpha=1,
         bias=0.5,
         preference="standard",
-        policy_len=10,
-        update_interval=50,
+        policy_len=5,
+        update_interval=5,
         seed=seed,
         lr_B=1,
     ),
@@ -158,6 +159,28 @@ strategies = [
         prior_strength=0.5,
         discount_rate=0.95,
         value_iteration_steps=50,
+    ),
+    JaxFiveStateAgentDeterministic(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        preference="standard",
+        policy_len=5,
+        update_interval=5,
+        seed=seed,
+        lr_B=1,
+    ),
+    JaxFiveStateAgentDeterministic(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        preference="nash",
+        policy_len=5,
+        update_interval=5,
+        seed=seed,
+        lr_B=1,
     ),
 ]
 
