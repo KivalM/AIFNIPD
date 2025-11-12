@@ -3,7 +3,7 @@ import jax.tree_util as jtu
 from jax import nn, vmap, lax, jit
 from jax import random as jr
 import numpy as np
-
+from collections import deque
 from pymdp.envs import GridWorldEnv
 from pymdp.jax.task import PyMDPEnv
 from pymdp.jax.agent import Agent as AIFAgent
@@ -138,14 +138,14 @@ class JaxFiveStateAgent(JointWrapper):
     def __init__(
         self,
         policy_len: int = 15,
-        update_interval: int = 50,
+        update_interval: int = 1,
         seed: int = 0,
         lr_B: float = 1,
         alpha: float = 1,
         gamma: float = 1,
         bias: float = 0.5,
         preference: str = "standard",
-        pB_scale: float = 100,
+        pB_scale: float = 1,
     ) -> None:
         super().__init__()
         self.policy_len = policy_len
@@ -153,10 +153,15 @@ class JaxFiveStateAgent(JointWrapper):
         self.update_interval = update_interval
         self.empirical_prior = self.agent.D
         self.seed = seed
-        self.qs = []
-        self.obs = []
-        self.actions = []
+        # Use deques with appropriate maxlen for rolling window
+        # For N transitions: need N+1 beliefs/obs, N+1 actions (we slice off last)
+        self.qs = deque(maxlen=self.update_interval + 1)
+        self.obs = deque(maxlen=self.update_interval + 1)
+        self.actions = deque(maxlen=self.update_interval + 1)
+        self.qpi_history = []  # Store policy distributions
+        self.efe_history = []  # Store EFE values
         self.lr_B = lr_B
+        self.step_count = 0  # Track steps since last update
         self.set_seed(seed)
     
     def set_seed(self, seed: int):
@@ -174,23 +179,53 @@ class JaxFiveStateAgent(JointWrapper):
         self.rng_key = jr.split(self.rng_key)[1]
         rng_key, obs_idx, empirical_prior, qs, action = step(self.rng_key, self.agent, obs_idx, self.empirical_prior)
         self.empirical_prior = empirical_prior
+        
+        # Append in original order: qs, obs, actions together
+        # action[t] is taken from qs[t], and results in obs[t+1], qs[t+1] 
         self.qs.append(qs)
         self.obs.append(obs_idx)
         self.actions.append(action)
-        if len(self.obs) % self.update_interval == 0:
-          beliefs = [jnp.array(self.qs).reshape(n_batches, len(self.qs), num_states)]
-          actions = [jnp.array(self.actions).reshape(n_batches, len(self.actions),1)[:, :-1, :]]
-          outcomes = [jnp.array(self.obs).reshape(n_batches, len(self.obs))]
-          self.agent = update_B(self.agent, beliefs, outcomes[0], actions[0], lr_B=self.lr_B)
-          self.qs = []
-          self.obs = []
-          self.actions = []
+        self.step_count += 1
+        
+        # Store EFE from infer_policies (compute it here since step() doesn't return it)
+        qpi, efe = self.agent.infer_policies(qs)
+        print(f"EFE: {efe}")
+        self.qpi_history.append(qpi)
+        self.efe_history.append(efe)
+        
+        # Update every N steps once we have enough data
+        # We need N+1 observations/beliefs but only N actions (exclude the last action that hasn't been executed yet)
+        if self.step_count >= self.update_interval and len(self.actions) >= self.update_interval and len(self.qs) >= self.update_interval + 1:
+            # Convert deques to arrays
+            qs_arr = jnp.array([q for q in self.qs])
+            obs_arr = jnp.array([o for o in self.obs])
+            act_arr = jnp.array([a for a in self.actions])
+            
+            # Reshape for batch processing
+            beliefs = [qs_arr.reshape(n_batches, len(self.qs), num_states)]
+            outcomes = obs_arr.reshape(n_batches, len(self.obs))
+            # Exclude last action - we haven't seen its result yet
+            actions = act_arr[:-1].reshape(n_batches, len(self.actions) - 1, 1)
+            
+            print(f"Beliefs: {beliefs[0].shape}")  # Should be (1, N+1, 5)
+            print(f"Actions: {actions.shape}")     # Should be (1, N, 1)
+            print(f"Outcomes: {outcomes.shape}")   # Should be (1, N+1)
+            
+            self.agent = update_B(self.agent, beliefs, outcomes, actions, lr_B=self.lr_B)
+            
+            self.qpi_history = []
+            self.efe_history = []
+            self.step_count = 0  # Reset counter after update
+        
         return Action.C if action[0][0] == C else Action.D
 
     def reset(self) -> None:  
-        self.qs = []
-        self.obs = []
-        self.actions = []
+        self.qs = deque(maxlen=self.update_interval + 1)
+        self.obs = deque(maxlen=self.update_interval + 1)
+        self.actions = deque(maxlen=self.update_interval + 1)
+        self.qpi_history = []
+        self.efe_history = []
+        self.step_count = 0
         self.empirical_prior = self.agent.D
         super().reset()
 
@@ -241,20 +276,8 @@ if __name__ == "__main__":
     from axelrod import Match
     from axelrod.strategies.titfortat import TitForTat
 
-    agent = JaxFiveStateAgent(seed=0, lr_B=1.5, update_interval=10, alpha=0.6, bias=0.5, preference="nash", pB_scale=1)
-    agent2 = axl.DBS()
-    agent3 = axl.APavlov2011()
-    agent4 = axl.StochasticWSLS()
+    agent = JaxFiveStateAgent(seed=0, lr_B=1.5, update_interval=5, alpha=1, bias=0.5, preference="standard", pB_scale=1, policy_len=1)
 
-    gtft = axl.Grudger()
-    match1 = Match((agent, gtft), turns=1000, noise=0.05)
+    match1 = Match((agent, axl.Alternator()), turns=100, noise=0.00)
     match1.play()
     print(match1.final_score())
-
-    match2 = Match((agent2, gtft), turns=1000, noise=0.05)
-    match2.play()
-    print(match2.final_score())
-
-    match3 = Match((agent3, gtft), turns=1000, noise=0.05)
-    match3.play()
-    print(match3.final_score())
