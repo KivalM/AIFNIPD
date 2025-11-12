@@ -189,9 +189,9 @@ class JaxFiveStateAgent(JointWrapper):
         self.step_count += 1
         
         # Store EFE from infer_policies (compute it here since step() doesn't return it)
-        qpi, efe = self.agent.infer_policies(qs)
-        self.qpi_history.append(qpi)
-        self.efe_history.append(efe)
+        # qpi, efe = self.agent.infer_policies(qs)
+        # self.qpi_history.append(qpi)
+        # self.efe_history.append(efe)
         
         # Update every N steps once we have enough data
         # We need N+1 observations/beliefs but only N actions (exclude the last action that hasn't been executed yet)
