@@ -46,7 +46,7 @@ def make_agent(
     alpha: float = 1,
     gamma: float = 1,
     bias: float = 0.5,
-    preference: str = "standard", # or nash
+    preference: str = "standard",
     pB_scale: float = 100,
 ):
 
