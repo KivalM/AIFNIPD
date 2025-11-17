@@ -304,10 +304,10 @@ if __name__ == "__main__":
     from axelrod import Match
     from axelrod.strategies.titfortat import TitForTat
 
-    agent1 = JaxFiveStateAgentDeterministicNoisy(seed=1, lr_B=2, update_interval=5, alpha=1, pB_scale=1, bias=0.5, preference="standard", policy_len=10)
-    agent2 = JaxFiveStateAgentDeterministicNoisy(seed=1, lr_B=1, update_interval=5, alpha=1, pB_scale=1, bias=0.5, preference="standard", policy_len=5)
+    agent1 = JaxFiveStateAgentDeterministicNoisy(seed=1, lr_B=1, update_interval=10, alpha=1, pB_scale=1, bias=0.5, preference="standard", policy_len=10)
+    agent2 = JaxFiveStateAgentDeterministicNoisy(seed=1, lr_B=1, update_interval=10, alpha=1, pB_scale=1, bias=0.5, preference="standard", policy_len=10)
     
-    match1 = Match((agent1, axl.ZDExtort4()), turns=1000, noise=0.00)
+    match1 = Match((agent1, axl.TitForTat()), turns=1000, noise=0.05)
     match1.play()
     print(match1.final_score())
     print(match1.cooperation())

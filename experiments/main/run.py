@@ -49,104 +49,20 @@ processes = 20
 seed = 42
 
 strategies = [
-    JaxFiveStateAgent(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    JaxFiveStateAgent(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
     JaxQLearner(
         learning_rate=0.9,
         discount_rate=0.9,
         action_selection_parameter=0.1,
     ),
-    CooperativeQLearner(
-        learning_rate=0.9,
-        discount_rate=0.9,
-        action_selection_parameter=0.1,
-    ),
-
     JaxBayesianQLearner(
         discount_rate=0.5,
         initial_variance=1.0,
         reward_variance=1.0,
     ),
-    CooperativeBQLearner(
-        discount_rate=0.5,
-        initial_variance=1.0,
-        reward_variance=1.0,
-    ),
-    JaxFiveStateAgentNoisy(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    JaxFiveStateAgentNoisy(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    #
     axl.DBS(0.999, 5, 2, 3, 5),
     axl.GTFT(),
     axl.ContriteTitForTat(),
-    JaxFiveStateAgentUtility(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    JaxFiveStateAgentUtility(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
     DynaQ(
-        learning_rate=0.1,
-        discount_rate=0.9,
-        action_selection_parameter=0.1,
-        planning_steps=5,
-    ),
-    CooperativeDynaQ(
         learning_rate=0.1,
         discount_rate=0.9,
         action_selection_parameter=0.1,
@@ -157,34 +73,7 @@ strategies = [
         discount_rate=0.95,
         value_iteration_steps=50,
     ),
-    CooperativePSRL(
-        prior_strength=0.5,
-        discount_rate=0.95,
-        value_iteration_steps=50,
-    ),
     JaxFiveStateAgentDeterministic(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    JaxFiveStateAgentDeterministic(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    JaxFiveStateAgentDeterministicUtility(
         pB_scale=1,
         gamma=1,
         alpha=1,
@@ -200,9 +89,20 @@ strategies = [
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="nash",
+        preference="standard",
         policy_len=5,
-        update_interval=5,
+        update_interval=10,
+        seed=seed,
+        lr_B=1,
+    ),
+    JaxFiveStateAgentDeterministicNoisy(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        preference="standard",
+        policy_len=5,
+        update_interval=10,
         seed=seed,
         lr_B=1,
     ),
@@ -234,28 +134,16 @@ def generate_plots():
     
     # Agent rename map based on indices
     rename_map = {
-        '0': 'AIF-R-S',           # JaxFiveStateAgent (standard)
-        '1': 'AIF-C-S',           # JaxFiveStateAgent (nash)
-        '2': 'QL-R',            # JaxQLearner
-        '3': 'QL-C',            # CooperativeQLearner
-        '4': 'BQL-R',           # JaxBayesianQLearner
-        '5': 'BQL-C',           # CooperativeBQLearner
-        '6': 'AIF-R-N-S',         # JaxFiveStateAgentNoisy (standard)
-        '7': 'AIF-C-N-S',         # JaxFiveStateAgentNoisy (nash)
-        '8': 'DBS',             # DBS
-        '9': 'GTFT',            # GTFT
-        '10': 'CTFT',           # ContriteTitForTat
-        '11': 'AIF-R-U-S',        # JaxFiveStateAgentUtility (standard)
-        '12': 'AIF-C-U-S',        # JaxFiveStateAgentUtility (nash)
-        '13': 'DynaQ-R',        # DynaQ (standard)
-        '14': 'DynaQ-C',        # CooperativeDynaQ
-        '15': 'PSRL-R',        # PSRL
-        '16': 'PSRL-C',        # CooperativePSRL
-        '17': 'AIF-R-D',        # JaxFiveStateAgentDeterministic (standard)
-        '18': 'AIF-C-D',        # JaxFiveStateAgentDeterministic (nash)
-        '19': 'AIF-R-D-U',        # JaxFiveStateAgentDeterministicUtility (standard)
-        '20': 'AIF-C-D-U',        # JaxFiveStateAgentDeterministicUtility (nash)
-        '21': 'AIF-R-D-N',        # JaxFiveStateAgentDeterministicNoisy (standard)
+        0: 'QL',
+        1: 'BQL',
+        2: 'DBS',
+        3: 'GTFT',
+        4: 'CTFT',
+        5: 'DynaQ',
+        6: 'PSRL',
+        7: 'AIF-S',
+        8: 'AIF-S-U',
+        9: 'AIF-S-N',
     }
     
     # Agent groups for focused plots

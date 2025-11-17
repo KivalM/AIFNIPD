@@ -31,18 +31,6 @@ processes = 10
 seed = 42
 
 strategies = [
-    JaxFiveStateAgent(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-
     JaxQLearner(
         learning_rate=0.9,
         discount_rate=0.9,
@@ -54,35 +42,9 @@ strategies = [
         initial_variance=1.0,
         reward_variance=1.0,
     ),
-
-    JaxFiveStateAgentNoisy(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-
-    #
     axl.DBS(0.999, 5, 2, 3, 5),
     axl.GTFT(),
     axl.ContriteTitForTat(),
-    JaxFiveStateAgentUtility(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-
     DynaQ(
         learning_rate=0.1,
         discount_rate=0.9,
@@ -101,7 +63,7 @@ strategies = [
         bias=0.5,
         preference="standard",
         policy_len=5,
-        update_interval=5,
+        update_interval=10,
         seed=seed,
         lr_B=1,
     ),
@@ -112,7 +74,7 @@ strategies = [
         bias=0.5,
         preference="standard",
         policy_len=5,
-        update_interval=5,
+        update_interval=10,
         seed=seed,
         lr_B=1,
     ),
@@ -123,7 +85,7 @@ strategies = [
         bias=0.5,
         preference="standard",
         policy_len=5,
-        update_interval=5,
+        update_interval=10,
         seed=seed,
         lr_B=1,
     ),
@@ -157,19 +119,16 @@ def analyze_results():
     
     # Agent rename map for cleaner labels
     rename_map = {
-        0: 'AIF-S',
-        1: 'QL',
-        2: 'BQL',
-        3: 'AIF-N',
-        4: 'DBS',
-        5: 'GTFT',
-        6: 'CTFT',
-        7: 'AIF-S-U',
-        8: 'DynaQ',
-        9: 'PSRL',
-        10: 'AIF-D',
-        11: 'AIF-D-U',
-        12: 'AIF-D-N',
+        0: 'QL',
+        1: 'BQL',
+        2: 'DBS',
+        3: 'GTFT',
+        4: 'CTFT',
+        5: 'DynaQ',
+        6: 'PSRL',
+        7: 'AIF-S',
+        8: 'AIF-S-U',
+        9: 'AIF-S-N',
     }
     
     # Setup publication style

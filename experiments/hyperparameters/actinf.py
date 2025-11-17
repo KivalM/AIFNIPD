@@ -7,6 +7,8 @@ import axelrod as axl
 import numpy as np
 from agents.aif.jax.five_state import JaxFiveStateAgent
 from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
+from agents.aif.jax.five_state_deterministic_noise import JaxFiveStateAgentDeterministicNoisy
+from agents.aif.jax.five_state_deterministic import JaxFiveStateAgentDeterministic
 import os
 import itertools
 import random
@@ -39,7 +41,7 @@ def run_search():
     for combination in combinations:
         pB_lr, c_preference, noisy_A_option, policy_len, update_interval, pB_scale, gamma, alpha, bias = combination
         if noisy_A_option:
-            agent = JaxFiveStateAgentNoisy(
+            agent = JaxFiveStateAgentDeterministicNoisy(
                 lr_B=pB_lr,
                 preference=c_preference,
                 policy_len=policy_len,
@@ -50,7 +52,7 @@ def run_search():
                 bias=bias
             )   
         else:   
-            agent = JaxFiveStateAgent(
+            agent = JaxFiveStateAgentDeterministic(
                 lr_B=pB_lr,
                 preference=c_preference,
                 policy_len=policy_len,
