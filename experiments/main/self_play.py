@@ -6,6 +6,7 @@ from agents.aif.jax.five_state_deterministic import JaxFiveStateAgentDeterminist
 from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
 from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
 from agents.aif.jax.five_state_deterministic_utility import JaxFiveStateAgentDeterministicUtility
+from agents.aif.jax.five_state_deterministic_noise import JaxFiveStateAgentDeterministicNoisy
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
 from agents.qlearner import JaxQLearner, CooperativeQLearner
 from agents.psrl import PSRL, CooperativePSRL
@@ -24,9 +25,9 @@ from experiments import (
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
-repetitions = 30
+repetitions = 5
 turns = 1000
-processes = 20
+processes = 10
 seed = 42
 
 strategies = [
@@ -41,23 +42,8 @@ strategies = [
         seed=seed,
         lr_B=1,
     ),
-    JaxFiveStateAgent(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
+
     JaxQLearner(
-        learning_rate=0.9,
-        discount_rate=0.9,
-        action_selection_parameter=0.1,
-    ),
-    CooperativeQLearner(
         learning_rate=0.9,
         discount_rate=0.9,
         action_selection_parameter=0.1,
@@ -68,11 +54,7 @@ strategies = [
         initial_variance=1.0,
         reward_variance=1.0,
     ),
-    CooperativeBQLearner(
-        discount_rate=0.5,
-        initial_variance=1.0,
-        reward_variance=1.0,
-    ),
+
     JaxFiveStateAgentNoisy(
         pB_scale=1,
         gamma=1,
@@ -84,17 +66,7 @@ strategies = [
         seed=seed,
         lr_B=1,
     ),
-    JaxFiveStateAgentNoisy(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
+
     #
     axl.DBS(0.999, 5, 2, 3, 5),
     axl.GTFT(),
@@ -110,24 +82,8 @@ strategies = [
         seed=seed,
         lr_B=1,
     ),
-    JaxFiveStateAgentUtility(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
+
     DynaQ(
-        learning_rate=0.1,
-        discount_rate=0.9,
-        action_selection_parameter=0.1,
-        planning_steps=5,
-    ),
-    CooperativeDynaQ(
         learning_rate=0.1,
         discount_rate=0.9,
         action_selection_parameter=0.1,
@@ -138,28 +94,12 @@ strategies = [
         discount_rate=0.95,
         value_iteration_steps=50,
     ),
-    CooperativePSRL(
-        prior_strength=0.5,
-        discount_rate=0.95,
-        value_iteration_steps=50,
-    ),
     JaxFiveStateAgentDeterministic(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
         preference="standard",
-        policy_len=5,
-        update_interval=5,
-        seed=seed,
-        lr_B=1,
-    ),
-    JaxFiveStateAgentDeterministic(
-        pB_scale=1,
-        gamma=1,
-        alpha=1,
-        bias=0.5,
-        preference="nash",
         policy_len=5,
         update_interval=5,
         seed=seed,
@@ -176,12 +116,12 @@ strategies = [
         seed=seed,
         lr_B=1,
     ),
-    JaxFiveStateAgentDeterministicUtility(
+    JaxFiveStateAgentDeterministicNoisy(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="nash",
+        preference="standard",
         policy_len=5,
         update_interval=5,
         seed=seed,
@@ -217,23 +157,19 @@ def analyze_results():
     
     # Agent rename map for cleaner labels
     rename_map = {
-        0: 'AIF-R',           # JaxFiveStateAgent (standard)
-        1: 'AIF-C',           # JaxFiveStateAgent (nash)
-        2: 'QL-R',            # JaxQLearner
-        3: 'QL-C',            # CooperativeQLearner
-        4: 'BQL-R',           # JaxBayesianQLearner
-        5: 'BQL-C',           # CooperativeBQLearner
-        6: 'AIF-R-N',         # JaxFiveStateAgentNoisy (standard)
-        7: 'AIF-C-N',         # JaxFiveStateAgentNoisy (nash)
-        8: 'DBS',             # DBS
-        9: 'GTFT',            # GTFT
-        10: 'CTFT',           # ContriteTitForTat
-        11: 'AIF-R-U',        # JaxFiveStateAgentUtility (standard)
-        12: 'AIF-C-U',        # JaxFiveStateAgentUtility (nash)
-        13: 'DynaQ-R',        # DynaQ
-        14: 'DynaQ-C',        # CooperativeDynaQ
-        15: 'PSRL-R',        # PSRL
-        16: 'PSRL-C',        # CooperativePSRL
+        0: 'AIF-S',
+        1: 'QL',
+        2: 'BQL',
+        3: 'AIF-N',
+        4: 'DBS',
+        5: 'GTFT',
+        6: 'CTFT',
+        7: 'AIF-S-U',
+        8: 'DynaQ',
+        9: 'PSRL',
+        10: 'AIF-D',
+        11: 'AIF-D-U',
+        12: 'AIF-D-N',
     }
     
     # Setup publication style

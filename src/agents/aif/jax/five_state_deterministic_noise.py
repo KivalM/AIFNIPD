@@ -116,7 +116,7 @@ def make_agent(
         gamma=jnp.ones(1) * gamma,
         alpha=jnp.ones(1) * alpha,
         onehot_obs=False,
-        action_selection="stochastic",
+        action_selection="deterministic",
         inference_algo="ovf",
         num_iter=1,
         learn_A=False,
@@ -151,8 +151,8 @@ def update_B(agent, beliefs, outcomes, actions, lr_B=1):
     return agent.infer_parameters(beliefs, outcomes, actions, lr_B=lr_B)
 
 
-class JaxFiveStateAgentNoisy(JointWrapper):
-    name = "JAX_AIF_NOISE"
+class JaxFiveStateAgentDeterministicNoisy(JointWrapper):
+    name = "JAX_AIF_DETERMINISTIC_NOISE"
 
     def __init__(
         self,
@@ -304,19 +304,11 @@ if __name__ == "__main__":
     from axelrod import Match
     from axelrod.strategies.titfortat import TitForTat
 
-    agent = JaxFiveStateAgentNoisy(seed=1, lr_B=1.5, update_interval=100, alpha=1, pB_scale=100, bias=0.5, preference="standard")
-    agent2 = axl.DBS()
-    agent3 = axl.APavlov2011()
-
-    gtft = axl.TitForTat()
-    match1 = Match((agent, gtft), turns=1000, noise=0.15)
+    agent1 = JaxFiveStateAgentDeterministicNoisy(seed=1, lr_B=2, update_interval=5, alpha=1, pB_scale=1, bias=0.5, preference="standard", policy_len=10)
+    agent2 = JaxFiveStateAgentDeterministicNoisy(seed=1, lr_B=1, update_interval=5, alpha=1, pB_scale=1, bias=0.5, preference="standard", policy_len=5)
+    
+    match1 = Match((agent1, axl.ZDExtort4()), turns=1000, noise=0.00)
     match1.play()
     print(match1.final_score())
-
-    match2 = Match((agent2, gtft), turns=1000, noise=0.15)
-    match2.play()
-    print(match2.final_score())
-
-    match3 = Match((agent3, gtft), turns=1000, noise=0.15)
-    match3.play()
-    print(match3.final_score())
+    print(match1.cooperation())
+    print(match1.state_distribution())

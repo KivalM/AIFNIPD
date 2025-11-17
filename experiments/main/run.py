@@ -233,19 +233,27 @@ def generate_plots():
     
     # Agent rename map based on indices
     rename_map = {
-        '0': 'AIF-R',           # JaxFiveStateAgent (standard)
-        '1': 'AIF-C',           # JaxFiveStateAgent (nash)
+        '0': 'AIF-R-S',           # JaxFiveStateAgent (standard)
+        '1': 'AIF-C-S',           # JaxFiveStateAgent (nash)
         '2': 'QL-R',            # JaxQLearner
         '3': 'QL-C',            # CooperativeQLearner
         '4': 'BQL-R',           # JaxBayesianQLearner
         '5': 'BQL-C',           # CooperativeBQLearner
-        '6': 'AIF-R-N',         # JaxFiveStateAgentNoisy (standard)
-        '7': 'AIF-C-N',         # JaxFiveStateAgentNoisy (nash)
+        '6': 'AIF-R-N-S',         # JaxFiveStateAgentNoisy (standard)
+        '7': 'AIF-C-N-S',         # JaxFiveStateAgentNoisy (nash)
         '8': 'DBS',             # DBS
         '9': 'GTFT',            # GTFT
         '10': 'CTFT',           # ContriteTitForTat
-        '11': 'AIF-R-U',        # JaxFiveStateAgentUtility (standard)
-        '12': 'AIF-C-U',        # JaxFiveStateAgentUtility (nash)
+        '11': 'AIF-R-U-S',        # JaxFiveStateAgentUtility (standard)
+        '12': 'AIF-C-U-S',        # JaxFiveStateAgentUtility (nash)
+        '13': 'DynaQ-R',        # DynaQ (standard)
+        '14': 'DynaQ-C',        # CooperativeDynaQ
+        '15': 'PSRL-R',        # PSRL
+        '16': 'PSRL-C',        # CooperativePSRL
+        '17': 'AIF-R-D',        # JaxFiveStateAgentDeterministic (standard)
+        '18': 'AIF-C-D',        # JaxFiveStateAgentDeterministic (nash)
+        '19': 'AIF-R-D-U',        # JaxFiveStateAgentDeterministicUtility (standard)
+        '20': 'AIF-C-D-U',        # JaxFiveStateAgentDeterministicUtility (nash)
     }
     
     # Agent groups for focused plots
@@ -408,6 +416,9 @@ def generate_plots():
     # Generate CC-Rate comparison table at noise 0 vs 0.05
     generate_cc_rate_comparison_table(main_plots_dir, analysis_dir, rename_map)
     
+    # Generate Score comparison table at noise 0 vs 0.05
+    generate_score_comparison_table(main_plots_dir, analysis_dir, rename_map)
+    
     # Generate variance analysis for DBS, AIF-C, and QL-C
     generate_variance_analysis(analysis_dir, rename_map)
     
@@ -509,6 +520,86 @@ def generate_cc_rate_comparison_table(main_plots_dir: Path, analysis_dir: Path, 
     
     print(f"    ✓ Saved to {analysis_dir / 'cc_rate_comparison_0_vs_005.csv'}")
     print(f"    ✓ Saved to {analysis_dir / 'cc_rate_comparison_0_vs_005_formatted.csv'}")
+
+
+def generate_score_comparison_table(main_plots_dir: Path, analysis_dir: Path, rename_map: dict):
+    """Generate table comparing scores at noise 0 vs 0.05."""
+    print("\n  Creating Score comparison table (noise 0 vs 0.05)...")
+    
+    comparison_data = []
+    
+    for pool_name in ['static', 'learning']:
+        pool_dir = Path(f'results/main/{pool_name}')
+        
+        # Load scores for both noise levels
+        scores = load_all_agents_scores(pool_dir, [0.0, 0.05])
+        
+        for agent_dir in scores['agent_name'].unique():
+            # Get agent index and rename
+            agent_index = agent_dir.split('_')[0]
+            agent_name = rename_map.get(agent_index, agent_dir)
+            
+            # Get data for each noise level
+            noise_0 = scores[(scores['agent_name'] == agent_dir) & 
+                           (scores['noise_level'] == 0.0)]
+            noise_005 = scores[(scores['agent_name'] == agent_dir) & 
+                             (scores['noise_level'] == 0.05)]
+            
+            if not noise_0.empty and not noise_005.empty:
+                # Load repetition data to calculate IQR
+                from experiments.result_utils import load_tournament_results
+                
+                # Calculate per-repetition scores for noise 0
+                df_0 = load_tournament_results(pool_dir, agent_dir, 0.0)
+                if not df_0.empty:
+                    agent_data_0 = df_0[df_0['Player index'] == 0]
+                    scores_0 = []
+                    for rep in agent_data_0['repetition'].unique():
+                        rep_data = agent_data_0[agent_data_0['repetition'] == rep]
+                        scores_0.append(rep_data['Score'].mean())
+                    
+                    # Calculate per-repetition scores for noise 0.05
+                    df_005 = load_tournament_results(pool_dir, agent_dir, 0.05)
+                    agent_data_005 = df_005[df_005['Player index'] == 0]
+                    scores_005 = []
+                    for rep in agent_data_005['repetition'].unique():
+                        rep_data = agent_data_005[agent_data_005['repetition'] == rep]
+                        scores_005.append(rep_data['Score'].mean())
+                    
+                    if scores_0 and scores_005:
+                        comparison_data.append({
+                            'Pool': pool_name.capitalize(),
+                            'Agent': agent_name,
+                            'Score_0.0': noise_0['mean_score'].values[0],
+                            'StdDev_0.0': noise_0['std_score'].values[0],
+                            'IQR_0.0': np.percentile(scores_0, 75) - np.percentile(scores_0, 25),
+                            'Score_0.05': noise_005['mean_score'].values[0],
+                            'StdDev_0.05': noise_005['std_score'].values[0],
+                            'IQR_0.05': np.percentile(scores_005, 75) - np.percentile(scores_005, 25),
+                            'Difference': noise_005['mean_score'].values[0] - noise_0['mean_score'].values[0]
+                        })
+    
+    # Create DataFrame and save
+    df = pd.DataFrame(comparison_data)
+    df = df.sort_values(['Pool', 'Agent'])
+    df.to_csv(analysis_dir / 'score_comparison_0_vs_005.csv', index=False)
+    
+    # Create formatted version
+    formatted_data = []
+    for _, row in df.iterrows():
+        formatted_data.append({
+            'Pool': row['Pool'],
+            'Agent': row['Agent'],
+            'Score_0.0': f"{row['Score_0.0']:.2f} ± {row['StdDev_0.0']:.2f} (IQR: {row['IQR_0.0']:.2f})",
+            'Score_0.05': f"{row['Score_0.05']:.2f} ± {row['StdDev_0.05']:.2f} (IQR: {row['IQR_0.05']:.2f})",
+            'Difference': f"{row['Difference']:+.2f}"
+        })
+    
+    formatted_df = pd.DataFrame(formatted_data)
+    formatted_df.to_csv(analysis_dir / 'score_comparison_0_vs_005_formatted.csv', index=False)
+    
+    print(f"    ✓ Saved to {analysis_dir / 'score_comparison_0_vs_005.csv'}")
+    print(f"    ✓ Saved to {analysis_dir / 'score_comparison_0_vs_005_formatted.csv'}")
 
 
 def generate_variance_analysis(analysis_dir: Path, rename_map: dict):
