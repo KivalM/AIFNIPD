@@ -9,6 +9,7 @@ from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
 from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
 from agents.aif.jax.five_state_deterministic import JaxFiveStateAgentDeterministic
 from agents.aif.jax.five_state_deterministic_utility import JaxFiveStateAgentDeterministicUtility
+from agents.aif.jax.five_state_deterministic_noise import JaxFiveStateAgentDeterministicNoisy
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
 from agents.qlearner import JaxQLearner, CooperativeQLearner
 from agents.psrl import PSRL, CooperativePSRL
@@ -254,6 +255,7 @@ def generate_plots():
         '18': 'AIF-C-D',        # JaxFiveStateAgentDeterministic (nash)
         '19': 'AIF-R-D-U',        # JaxFiveStateAgentDeterministicUtility (standard)
         '20': 'AIF-C-D-U',        # JaxFiveStateAgentDeterministicUtility (nash)
+        '21': 'AIF-R-D-N',        # JaxFiveStateAgentDeterministicNoisy (standard)
     }
     
     # Agent groups for focused plots
