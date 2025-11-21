@@ -4,6 +4,7 @@ from jax import nn, vmap, lax, jit
 from jax import random as jr
 import numpy as np
 from collections import deque
+import warnings
 
 from pymdp.envs import GridWorldEnv
 from pymdp.jax.task import PyMDPEnv
@@ -21,6 +22,7 @@ from pymdp.agent import Agent
 import pymdp.utils as utils
 from ...wrapper import C, JointWrapper
 
+# Constants
 START = 0
 CC = 1
 CD = 2
@@ -40,17 +42,61 @@ num_states = len(ALL_STATES)
 num_obs = len(ALL_OBS)
 num_actions = len(ALL_ACTIONS)
 
+
+def noisy_obs_matrix(n: float, P0: np.ndarray | None = None) -> np.ndarray:
+    """
+    Returns P_noisy(o|s) given noise n and a base emission matrix P0(o|s).
+    Convention: rows=observations, cols=true states; each column sums to 1.
+    If P0 is None, uses the identity (no base noise).
+    """
+    S = np.array([[1 - n, n],
+                  [n, 1 - n]], dtype=float)        # single-player BSC(n)
+    K = np.kron(S, S)                               # two players: independent noise
+    if P0 is None:
+        return K
+    return K @ P0                                   # compose channels
+
+
 def make_agent(
     lr_B: float = 1,
     policy_len: int = 10,
     alpha: float = 1,
     gamma: float = 1,
     bias: float = 0.5,
-    preference: str = "standard",
+    cooperative_preference: bool = False,
     pB_scale: float = 100,
+    noise: float = 0.0,
+    action_selection: str = "stochastic",
+    use_utility: bool = True,
+    use_states_info_gain: bool = True,
+    use_param_info_gain: bool = True,
 ):
-
+    """
+    Create an Active Inference agent with configurable parameters.
+    
+    Args:
+        lr_B: Learning rate for B matrix
+        policy_len: Policy horizon length
+        alpha: Action selection precision
+        gamma: Policy precision
+        bias: Bias for state transitions
+        cooperative_preference: If True, use cooperative (nash) preferences; if False, use standard preferences
+        pB_scale: Scale for Dirichlet prior over B
+        noise: Noise level for observations (0.0 = no noise)
+        action_selection: "stochastic" or "deterministic"
+        use_utility: Whether to use utility (preference) term
+        use_states_info_gain: Whether to use state information gain
+        use_param_info_gain: Whether to use parameter information gain
+    """
     A_1 = np.eye(num_states)
+    
+    # Apply noise to observation matrix if noise > 0
+    if noise > 0.0:
+        P0 = np.eye(num_states - 1)
+        P_noisy = noisy_obs_matrix(noise, P0)
+        A_1[1:, 1:] = P_noisy
+        assert A_1.sum(axis=0, keepdims=True).all() == 1
+
     B_1 = np.zeros((num_states, num_states, num_actions))
     # if I cooperate in any state, The next state is CC or CD with equal probability
     B_1[CC, :, C] = bias
@@ -60,15 +106,17 @@ def make_agent(
     B_1[DD, :, D] = bias
 
     C_1 = np.zeros(num_obs)
-    if preference == "standard":
-        C_1[CC] = 3
-        C_1[CD] = 0
-        C_1[DC] = 5
-        C_1[DD] = 1
-    elif preference == "nash":
+    if cooperative_preference:
+        # Nash/cooperative preferences: no temptation to defect
         C_1[CC] = 3
         C_1[CD] = 0
         C_1[DC] = 0
+        C_1[DD] = 1
+    else:
+        # Standard preferences: temptation to defect for higher payoff
+        C_1[CC] = 3
+        C_1[CD] = 0
+        C_1[DC] = 5
         C_1[DD] = 1
 
     D_1 = np.zeros(num_states)
@@ -79,8 +127,11 @@ def make_agent(
     FINAL_C = [jnp.broadcast_to(C_1, (n_batches,) + (num_obs,))]
     FINAL_D = [jnp.broadcast_to(D_1, (n_batches,) + (num_states,))]
 
-    # pb would be a dirichlet distribution of FINAL_B[0] scaled by 10
-    pB = jnp.array(utils.dirichlet_like(FINAL_B[0], scale=pB_scale)[0])
+    # pb would be a dirichlet distribution of FINAL_B[0] scaled by pB_scale
+    # Suppress the pymdp warning about object array casting
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Input array is not an object array", module="pymdp.utils")
+        pB = jnp.array(utils.dirichlet_like(FINAL_B[0], scale=pB_scale)[0])
     pB = [jnp.broadcast_to(pB, (n_batches,) + (num_states, num_states, num_actions))]
 
     agent = AIFAgent(
@@ -92,34 +143,35 @@ def make_agent(
         pA=None,
         pB=pB,
         policy_len=policy_len,
-        use_utility=True,
-        use_states_info_gain=False,
-        use_param_info_gain=False,
+        use_utility=use_utility,
+        use_states_info_gain=use_states_info_gain,
+        use_param_info_gain=use_param_info_gain,
         gamma=jnp.ones(1) * gamma,
         alpha=jnp.ones(1) * alpha,
         onehot_obs=False,
-        action_selection="deterministic",
+        action_selection=action_selection,
         inference_algo="ovf",
         num_iter=1,
         learn_A=False,
         learn_B=True,
         learn_D=False,
         sampling_mode="marginal",
-
     )
 
     return agent
+
 
 def action_pair_to_obs(action, opponent_action):
     own_action = action
     opponent_action = opponent_action
     # CC -> 1 , CD -> 2, DC -> 3, DD -> 4
     # get idx from pair
-    idx = 1 +(own_action * 2) + opponent_action
+    idx = 1 + (own_action * 2) + opponent_action
     return jnp.array([[idx]])
 
+
 @jit
-def step(rng_key, agent: AIFAgent, obs_idx, empirical_prior):
+def step(rng_key, agent, obs_idx, empirical_prior):
     qs = agent.infer_states(obs_idx, empirical_prior)
     qpi, _ = agent.infer_policies(qs)
     rng_key = jr.split(rng_key)
@@ -129,31 +181,52 @@ def step(rng_key, agent: AIFAgent, obs_idx, empirical_prior):
 
 
 @jit
-def update_B(agent, beliefs, outcomes, actions, lr_B=1):
-    return agent.infer_parameters(beliefs, outcomes, actions, lr_B=lr_B)
+def update_B(agent, beliefs, outcomes, actions, lr_B=1, pB_decay_rate=1.0):
+    agent = agent.infer_parameters(beliefs, outcomes, actions, lr_B=lr_B)
+    # Always apply decay (no-op when pB_decay_rate == 1.0)
+    agent.pB[0] = agent.pB[0] * pB_decay_rate
+    return agent
 
 
-class JaxFiveStateAgentDeterministicUtility(JointWrapper):
-    name = "JAX_AIF_DETERMINISTIC_UTILITY"
+class ActiveInferenceAgent(JointWrapper):
+    name = "ActiveInferenceAgent"
 
     def __init__(
         self,
-        policy_len: int = 15,
-        update_interval: int = 50,
+        policy_len: int = 5,
+        update_interval: int = 10,
         seed: int = 0,
         lr_B: float = 1,
         alpha: float = 1,
         gamma: float = 1,
         bias: float = 0.5,
-        preference: str = "standard",
-        pB_scale: float = 100,
+        cooperative_preference: bool = False,
+        pB_scale: float = 1,
+        action_selection: str = "deterministic",
+        use_utility: bool = True,
+        use_states_info_gain: bool = True,
+        use_param_info_gain: bool = True,
+        noise: float = 0.0,
+        pB_decay_rate: float = 1.0,
     ) -> None:
         super().__init__()
+        # Store all configuration parameters
         self.policy_len = policy_len
-        self.agent = make_agent(policy_len=policy_len, lr_B=lr_B, alpha=alpha, gamma=gamma, bias=bias, preference=preference, pB_scale=pB_scale)
         self.update_interval = update_interval
-        self.empirical_prior = self.agent.D
         self.seed = seed
+        self.lr_B = lr_B
+        self.alpha = alpha
+        self.gamma = gamma
+        self.bias = bias
+        self.cooperative_preference = cooperative_preference
+        self.pB_scale = pB_scale
+        self.action_selection = action_selection
+        self.use_utility = use_utility
+        self.use_states_info_gain = use_states_info_gain
+        self.use_param_info_gain = use_param_info_gain
+        self.noise = noise
+        self.pB_decay_rate = pB_decay_rate
+        
         # Use deques with appropriate maxlen for rolling window
         # For N transitions: need N+1 beliefs/obs, N+1 actions (we slice off last)
         self.qs = deque(maxlen=self.update_interval + 1)
@@ -161,10 +234,37 @@ class JaxFiveStateAgentDeterministicUtility(JointWrapper):
         self.actions = deque(maxlen=self.update_interval + 1)
         self.qpi_history = []  # Store policy distributions
         self.efe_history = []  # Store EFE values
-        self.lr_B = lr_B
         self.step_count = 0  # Track steps since last update
+        
+        # Create agent and initialize
+        self.agent = self.make_agent()
+        self.empirical_prior = self.agent.D
         self.set_seed(seed)
     
+    def make_agent(self):
+        """Create agent with current configuration parameters."""
+        return make_agent(
+            lr_B=self.lr_B,
+            policy_len=self.policy_len,
+            alpha=self.alpha,
+            gamma=self.gamma,
+            bias=self.bias,
+            cooperative_preference=self.cooperative_preference,
+            pB_scale=self.pB_scale,
+            noise=self.noise,
+            action_selection=self.action_selection,
+            use_utility=self.use_utility,
+            use_states_info_gain=self.use_states_info_gain,
+            use_param_info_gain=self.use_param_info_gain,
+        )
+    
+    def receive_match_attributes(self) -> None:  # type: ignore[override]
+        """Recreate agent when match attributes are received (e.g., noise level)."""
+        super().receive_match_attributes()
+        # Recreate agent to handle any updated attributes like noise
+        if hasattr(self, 'agent') and self.agent is not None:
+            self.agent = self.make_agent()
+
     def set_seed(self, seed: int):
         self.seed = seed
         self.rng_key = jr.PRNGKey(self.seed)
@@ -173,12 +273,14 @@ class JaxFiveStateAgentDeterministicUtility(JointWrapper):
     def step(self, state: Tuple[Optional[Action], Optional[Action]]) -> Action:
         obs_idx = None
         if state[0] is None and state[1] is None:
-            obs_idx = [jnp.broadcast_to(jnp.array([START]), (1,1))]
+            obs_idx = [jnp.broadcast_to(jnp.array([START]), (1, 1))]
         else:
             obs_idx = [action_pair_to_obs(state[0].value, state[1].value)]
         
         self.rng_key = jr.split(self.rng_key)[1]
-        rng_key, obs_idx, empirical_prior, qs, action = step(self.rng_key, self.agent, obs_idx, self.empirical_prior)
+        rng_key, obs_idx, empirical_prior, qs, action = step(
+            self.rng_key, self.agent, obs_idx, self.empirical_prior
+        )
         self.empirical_prior = empirical_prior
         
         # Append in original order: qs, obs, actions together
@@ -187,11 +289,6 @@ class JaxFiveStateAgentDeterministicUtility(JointWrapper):
         self.obs.append(obs_idx)
         self.actions.append(action)
         self.step_count += 1
-        
-        # Store EFE from infer_policies (compute it here since step() doesn't return it)
-        # qpi, efe = self.agent.infer_policies(qs)
-        # self.qpi_history.append(qpi)
-        # self.efe_history.append(efe)
         
         # Update every N steps once we have enough data
         # We need N+1 observations/beliefs but only N actions (exclude the last action that hasn't been executed yet)
@@ -207,7 +304,10 @@ class JaxFiveStateAgentDeterministicUtility(JointWrapper):
             # Exclude last action - we haven't seen its result yet
             actions = act_arr[:-1].reshape(n_batches, len(self.actions) - 1, 1)
             
-            self.agent = update_B(self.agent, beliefs, outcomes, actions, lr_B=self.lr_B)
+            self.agent = update_B(
+                self.agent, beliefs, outcomes, actions, 
+                lr_B=self.lr_B, pB_decay_rate=self.pB_decay_rate
+            )
             
             self.qpi_history = []
             self.efe_history = []
@@ -241,6 +341,7 @@ def plot_A_1(A_1):
     plt.ylabel('State')
     plt.show()
 
+
 def plot_B_1(B_1):
     # B_1 Shape (next_state, current_state, action)
     assert B_1.shape == (num_states, num_states, num_actions), f"B_1 shape is {B_1.shape}, expected (num_states, num_states, num_actions)"
@@ -259,6 +360,7 @@ def plot_B_1(B_1):
   
     plt.show()
 
+
 def plot_C_1(C_1, title="Preferences"):
     plt.grid(zorder=0)
     plt.bar(range(C_1.shape[0]), C_1, color='r', zorder=3)
@@ -272,11 +374,34 @@ if __name__ == "__main__":
     from axelrod import Match
     from axelrod.strategies.titfortat import TitForTat
 
-    agent = JaxFiveStateAgent(seed=0, lr_B=1.5, update_interval=10, alpha=0.6, bias=0.5, preference="standard", pB_scale=1, policy_len=1)
-
+    # Test standard agent
+    agent = ActiveInferenceAgent(
+        seed=0, lr_B=1.5, update_interval=10, alpha=0.6, 
+        bias=0.5, cooperative_preference=False, pB_scale=1, policy_len=5, action_selection="deterministic"
+    )
 
     gtft = axl.TitForTat()
-    match1 = Match((agent, gtft), turns=100, noise=0.05)
+    match1 = Match((agent, gtft), turns=1000, noise=0.05)
     match1.play()
-    print(match1.final_score())
+    print("Standard agent:", match1.final_score())
+    
+    # Test deterministic agent
+    agent2 = ActiveInferenceAgent(
+        seed=0, lr_B=1.5, update_interval=10, alpha=0.6, 
+        bias=0.5, cooperative_preference=False, pB_scale=1, policy_len=5,
+        action_selection="deterministic"
+    )
+    match2 = Match((agent2, axl.TitForTat()), turns=1000, noise=0.05)
+    match2.play()
+    print("Deterministic agent:", match2.final_score())
+    
+    # Test with decay and cooperative preference
+    agent3 = ActiveInferenceAgent(
+        seed=0, lr_B=1.5, update_interval=10, alpha=0.6, 
+        bias=0.5, cooperative_preference=True, pB_scale=1, policy_len=10,
+        pB_decay_rate=0.9
+    )
+    match3 = Match((agent3, axl.Grudger()), turns=1000, noise=0.05)
+    match3.play()
+    print("Agent with decay and cooperative preference:", match3.final_score())
 
