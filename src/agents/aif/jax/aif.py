@@ -71,6 +71,7 @@ def make_agent(
     use_utility: bool = True,
     use_states_info_gain: bool = True,
     use_param_info_gain: bool = True,
+    preference_params: Tuple[float, float, float, float] = (3.0, 1.0, 0.0, 5.0),
 ):
     """
     Create an Active Inference agent with configurable parameters.
@@ -89,6 +90,7 @@ def make_agent(
         use_utility: Whether to use utility (preference) term
         use_states_info_gain: Whether to use state information gain
         use_param_info_gain: Whether to use parameter information gain
+        preference_params: Tuple of (R, P, S, T) payoffs
     """
     A_1 = np.eye(num_states)
     
@@ -108,18 +110,20 @@ def make_agent(
     B_1[DD, :, D] = bias
 
     C_1 = np.zeros(num_obs)
+    R, P, S, T = preference_params
+    
     if cooperative_preference:
         # Nash/cooperative preferences: no temptation to defect
-        C_1[CC] = 3
-        C_1[CD] = 0
-        C_1[DC] = 0
-        C_1[DD] = 1
+        C_1[CC] = R
+        C_1[CD] = S
+        C_1[DC] = S  # Remove temptation
+        C_1[DD] = P
     else:
         # Standard preferences: temptation to defect for higher payoff
-        C_1[CC] = 3
-        C_1[CD] = 0
-        C_1[DC] = 5
-        C_1[DD] = 1
+        C_1[CC] = R
+        C_1[CD] = S
+        C_1[DC] = T
+        C_1[DD] = P
 
     D_1 = np.zeros(num_states)
     D_1[START] = 1
@@ -230,6 +234,7 @@ class ActiveInferenceAgent(JointWrapper):
         self.noise = noise
         self.use_noisy_observation_model = use_noisy_observation_model
         self.pB_decay_rate = pB_decay_rate
+        self.preference_params = (3.0, 1.0, 0.0, 5.0)
         
         # Use deques with appropriate maxlen for rolling window
         # For N transitions: need N+1 beliefs/obs, N+1 actions (we slice off last)
@@ -261,11 +266,14 @@ class ActiveInferenceAgent(JointWrapper):
             use_utility=self.use_utility,
             use_states_info_gain=self.use_states_info_gain,
             use_param_info_gain=self.use_param_info_gain,
+            preference_params=self.preference_params,
         )
     
     def receive_match_attributes(self) -> None:  # type: ignore[override]
         """Recreate agent when match attributes are received (e.g., noise level)."""
         super().receive_match_attributes()
+        if "game" in self.match_attributes:
+            self.preference_params = self.match_attributes["game"].RPST()
         # Recreate agent to handle any updated attributes like noise
         if hasattr(self, 'agent') and self.agent is not None:
             self.agent = self.make_agent()

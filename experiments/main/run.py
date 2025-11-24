@@ -43,6 +43,13 @@ turns = 1000
 processes = 10
 seed = 42
 
+# Define games
+games = {
+    "pd": axl.Game(r=3, s=0, t=5, p=1),
+    "chicken": axl.Game(r=3, s=1, t=4, p=0),
+    "stag": axl.Game(r=4, s=0, t=3, p=3),
+}
+
 strategies = [
     JaxQLearner(
         learning_rate=0.9,
@@ -110,18 +117,21 @@ strategies = [
 ]
 
 def run_experiment(strategies, opponents, dir_name):
-    for i, strategy in enumerate[Any](strategies):
-        handler = FileSystemHandler(root_dir=f"results_updated_version/main")
-        noise_tournament = NoiseTournament(
-            players=[strategy] + opponents,
-            noise_levels=noise_levels,
-            repetitions=repetitions,
-            seed=seed,
-            callback=handler.save_results,
-            skip_callback=handler.skip_run,
-        )
-        noise_tournament.run(turns=turns, processes=processes)
-        print(f"Results are saved in the '{handler.root_dir}' directory.")
+    for game_name, game in games.items():
+        print(f"\nRunning experiments for {game_name}...")
+        for i, strategy in enumerate(strategies):
+            handler = FileSystemHandler(root_dir=f"results_updated_version/main/{game_name}")
+            noise_tournament = NoiseTournament(
+                players=[strategy] + opponents,
+                noise_levels=noise_levels,
+                repetitions=repetitions,
+                seed=seed,
+                game=game,
+                callback=handler.save_results,
+                skip_callback=handler.skip_run,
+            )
+            noise_tournament.run(turns=turns, processes=processes)
+            print(f"Results for {game_name} are saved in the '{handler.root_dir}' directory.")
 
 
 def generate_plots():
@@ -157,184 +167,191 @@ def generate_plots():
     # Group 3: Comparison across agent types
     mixed_group = [7, 6, 2, 3, 8]  # AIF-C-N, AIF-R-N, QL-R, QL-C, DBS
     
-    # Create top-level plots and analysis directories
-    main_plots_dir = Path('results/main/plots')
-    main_plots_dir.mkdir(exist_ok=True)
-    
-    analysis_dir = Path('results/main/analysis')
-    analysis_dir.mkdir(exist_ok=True)
-    
-    # Process both pools
-    for pool_name in ['static', 'learning']:
-        print(f"\nProcessing {pool_name} pool...")
-        pool_dir = Path(f'results/main/{pool_name}')
-        plots_dir = main_plots_dir / pool_name
-        plots_dir.mkdir(exist_ok=True)
+    for game_name in games.keys():
+        print(f"\nGenerating plots for {game_name}...")
         
-        # Load data
-        print(f"  Loading data...")
-        scores = load_all_agents_scores(pool_dir, noise_levels)
-        cc_rates = load_all_agents_cc_rates(pool_dir, noise_levels)
-        cd_rates = load_all_agents_cd_rates(pool_dir, noise_levels)
-        norm_coop = load_all_agents_normalized_cooperation(pool_dir, noise_levels)
+        # Create top-level plots and analysis directories
+        main_plots_dir = Path(f'results/main/{game_name}/plots')
+        main_plots_dir.mkdir(exist_ok=True, parents=True)
         
-        # Remove any duplicate entries (shouldn't happen but just in case)
-        scores = scores.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
-        cc_rates = cc_rates.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
-        cd_rates = cd_rates.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
-        norm_coop = norm_coop.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
+        analysis_dir = Path(f'results/main/{game_name}/analysis')
+        analysis_dir.mkdir(exist_ok=True, parents=True)
         
-        # Generate plots for cooperative agents
-        print(f"  Generating cooperative agents plots...")
-        cooperative_scores = filter_data_by_agents(scores, cooperative_group, rename_map)
-        cooperative_cc = filter_data_by_agents(cc_rates, cooperative_group, rename_map)
-        cooperative_cd = filter_data_by_agents(cd_rates, cooperative_group, rename_map)
-        cooperative_norm_coop = filter_data_by_agents(norm_coop, cooperative_group, rename_map)
+        # Process both pools
+        for pool_name in ['static', 'learning']:
+            print(f"\nProcessing {pool_name} pool...")
+            pool_dir = Path(f'results/main/{game_name}/{pool_name}')
+            if not pool_dir.exists():
+                print(f"Warning: {pool_dir} does not exist. Skipping.")
+                continue
+                
+            plots_dir = main_plots_dir / pool_name
+            plots_dir.mkdir(exist_ok=True)
+            
+            # Load data
+            print(f"  Loading data...")
+            scores = load_all_agents_scores(pool_dir, noise_levels)
+            cc_rates = load_all_agents_cc_rates(pool_dir, noise_levels)
+            cd_rates = load_all_agents_cd_rates(pool_dir, noise_levels)
+            norm_coop = load_all_agents_normalized_cooperation(pool_dir, noise_levels)
+            
+            # Remove any duplicate entries (shouldn't happen but just in case)
+            scores = scores.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
+            cc_rates = cc_rates.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
+            cd_rates = cd_rates.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
+            norm_coop = norm_coop.drop_duplicates(subset=['agent_name', 'noise_level'], keep='first')
+            
+            # Generate plots for cooperative agents
+            print(f"  Generating cooperative agents plots...")
+            cooperative_scores = filter_data_by_agents(scores, cooperative_group, rename_map)
+            cooperative_cc = filter_data_by_agents(cc_rates, cooperative_group, rename_map)
+            cooperative_cd = filter_data_by_agents(cd_rates, cooperative_group, rename_map)
+            cooperative_norm_coop = filter_data_by_agents(norm_coop, cooperative_group, rename_map)
+            
+            # Debug: print unique agents in the filtered data
+            print(f"    Cooperative agents: {sorted(cooperative_scores['agent_name'].unique())}")
+            
+            plot_scores_vs_noise(
+                cooperative_scores,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cooperative Agents',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_cooperative_scores'
+            )
+            
+            plot_cc_rate_vs_noise(
+                cooperative_cc,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cooperative Agents CC Rate',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_cooperative_cc_rate'
+            )
+            
+            plot_normalized_cooperation_vs_noise(
+                cooperative_norm_coop,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cooperative Agents Normalized Cooperation',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_cooperative_norm_coop'
+            )
+            
+            plot_cd_rate_vs_noise(
+                cooperative_cd,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cooperative Agents CD Rate',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_cooperative_cd_rate'
+            )
+            
+            # Generate plots for rational agents
+            print(f"  Generating rational agents plots...")
+            rational_scores = filter_data_by_agents(scores, rational_group, rename_map)
+            rational_cc = filter_data_by_agents(cc_rates, rational_group, rename_map)
+            rational_cd = filter_data_by_agents(cd_rates, rational_group, rename_map)
+            rational_norm_coop = filter_data_by_agents(norm_coop, rational_group, rename_map)
+            
+            # Debug: print unique agents in the filtered data
+            print(f"    Rational agents: {sorted(rational_scores['agent_name'].unique())}")
+            
+            plot_scores_vs_noise(
+                rational_scores,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Rational Agents',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_rational_scores'
+            )
+            
+            plot_cc_rate_vs_noise(
+                rational_cc,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Rational Agents CC Rate',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_rational_cc_rate'
+            )
+            
+            plot_normalized_cooperation_vs_noise(
+                rational_norm_coop,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Rational Agents Normalized Cooperation',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_rational_norm_coop'
+            )
+            
+            plot_cd_rate_vs_noise(
+                rational_cd,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Rational Agents CD Rate',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_rational_cd_rate'
+            )
+            
+            # Generate plots for mixed group (AIF-C-N, AIF-R-N, QL-R, QL-C, DBS)
+            print(f"  Generating mixed agents comparison plots...")
+            mixed_scores = filter_data_by_agents(scores, mixed_group, rename_map)
+            mixed_cc = filter_data_by_agents(cc_rates, mixed_group, rename_map)
+            mixed_cd = filter_data_by_agents(cd_rates, mixed_group, rename_map)
+            mixed_norm_coop = filter_data_by_agents(norm_coop, mixed_group, rename_map)
+            
+            # Debug: print unique agents in the filtered data
+            print(f"    Mixed agents: {sorted(mixed_scores['agent_name'].unique())}")
+            
+            plot_scores_vs_noise(
+                mixed_scores,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cross-Type Comparison',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_mixed_scores'
+            )
+            
+            plot_cc_rate_vs_noise(
+                mixed_cc,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cross-Type Comparison CC Rate',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_mixed_cc_rate'
+            )
+            
+            plot_normalized_cooperation_vs_noise(
+                mixed_norm_coop,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cross-Type Comparison Normalized Cooperation',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_mixed_norm_coop'
+            )
+            
+            plot_cd_rate_vs_noise(
+                mixed_cd,
+                title=f'{game_name.capitalize()} - {pool_name.capitalize()} Pool: Cross-Type Comparison CD Rate',
+                figsize=(10, 6),
+                save_path=plots_dir / f'{pool_name}_mixed_cd_rate'
+            )
+            
+            print(f"  ✓ Plots saved to {plots_dir}")
         
-        # Debug: print unique agents in the filtered data
-        print(f"    Cooperative agents: {sorted(cooperative_scores['agent_name'].unique())}")
+        print("\n" + "="*60)
+        print("Generating analysis tables...")
+        print("="*60)
         
-        plot_scores_vs_noise(
-            cooperative_scores,
-            title=f'{pool_name.capitalize()} Pool: Cooperative Agents',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_cooperative_scores'
-        )
+        # Generate CC-Rate comparison table at noise 0 vs 0.05
+        generate_cc_rate_comparison_table(main_plots_dir, analysis_dir, rename_map, game_name)
         
-        plot_cc_rate_vs_noise(
-            cooperative_cc,
-            title=f'{pool_name.capitalize()} Pool: Cooperative Agents CC Rate',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_cooperative_cc_rate'
-        )
+        # Generate Score comparison table at noise 0 vs 0.05
+        generate_score_comparison_table(main_plots_dir, analysis_dir, rename_map, game_name)
         
-        plot_normalized_cooperation_vs_noise(
-            cooperative_norm_coop,
-            title=f'{pool_name.capitalize()} Pool: Cooperative Agents Normalized Cooperation',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_cooperative_norm_coop'
-        )
+        # Generate variance analysis for DBS, AIF-C, and QL-C
+        generate_variance_analysis(analysis_dir, rename_map, game_name)
         
-        plot_cd_rate_vs_noise(
-            cooperative_cd,
-            title=f'{pool_name.capitalize()} Pool: Cooperative Agents CD Rate',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_cooperative_cd_rate'
-        )
+        # Generate variance visualizations
+        visualize_variance_analysis(analysis_dir, main_plots_dir)
         
-        # Generate plots for rational agents
-        print(f"  Generating rational agents plots...")
-        rational_scores = filter_data_by_agents(scores, rational_group, rename_map)
-        rational_cc = filter_data_by_agents(cc_rates, rational_group, rename_map)
-        rational_cd = filter_data_by_agents(cd_rates, rational_group, rename_map)
-        rational_norm_coop = filter_data_by_agents(norm_coop, rational_group, rename_map)
+        # Generate CVaR analysis
+        generate_cvar_analysis(main_plots_dir, rename_map, game_name)
         
-        # Debug: print unique agents in the filtered data
-        print(f"    Rational agents: {sorted(rational_scores['agent_name'].unique())}")
+        # Generate comprehensive analysis CSV
+        generate_comprehensive_analysis_csv(analysis_dir, rename_map, game_name)
         
-        plot_scores_vs_noise(
-            rational_scores,
-            title=f'{pool_name.capitalize()} Pool: Rational Agents',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_rational_scores'
-        )
-        
-        plot_cc_rate_vs_noise(
-            rational_cc,
-            title=f'{pool_name.capitalize()} Pool: Rational Agents CC Rate',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_rational_cc_rate'
-        )
-        
-        plot_normalized_cooperation_vs_noise(
-            rational_norm_coop,
-            title=f'{pool_name.capitalize()} Pool: Rational Agents Normalized Cooperation',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_rational_norm_coop'
-        )
-        
-        plot_cd_rate_vs_noise(
-            rational_cd,
-            title=f'{pool_name.capitalize()} Pool: Rational Agents CD Rate',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_rational_cd_rate'
-        )
-        
-        # Generate plots for mixed group (AIF-C-N, AIF-R-N, QL-R, QL-C, DBS)
-        print(f"  Generating mixed agents comparison plots...")
-        mixed_scores = filter_data_by_agents(scores, mixed_group, rename_map)
-        mixed_cc = filter_data_by_agents(cc_rates, mixed_group, rename_map)
-        mixed_cd = filter_data_by_agents(cd_rates, mixed_group, rename_map)
-        mixed_norm_coop = filter_data_by_agents(norm_coop, mixed_group, rename_map)
-        
-        # Debug: print unique agents in the filtered data
-        print(f"    Mixed agents: {sorted(mixed_scores['agent_name'].unique())}")
-        
-        plot_scores_vs_noise(
-            mixed_scores,
-            title=f'{pool_name.capitalize()} Pool: Cross-Type Comparison',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_mixed_scores'
-        )
-        
-        plot_cc_rate_vs_noise(
-            mixed_cc,
-            title=f'{pool_name.capitalize()} Pool: Cross-Type Comparison CC Rate',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_mixed_cc_rate'
-        )
-        
-        plot_normalized_cooperation_vs_noise(
-            mixed_norm_coop,
-            title=f'{pool_name.capitalize()} Pool: Cross-Type Comparison Normalized Cooperation',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_mixed_norm_coop'
-        )
-        
-        plot_cd_rate_vs_noise(
-            mixed_cd,
-            title=f'{pool_name.capitalize()} Pool: Cross-Type Comparison CD Rate',
-            figsize=(10, 6),
-            save_path=plots_dir / f'{pool_name}_mixed_cd_rate'
-        )
-        
-        print(f"  ✓ Plots saved to {plots_dir}")
-    
-    print("\n" + "="*60)
-    print("Generating analysis tables...")
-    print("="*60)
-    
-    # Generate CC-Rate comparison table at noise 0 vs 0.05
-    generate_cc_rate_comparison_table(main_plots_dir, analysis_dir, rename_map)
-    
-    # Generate Score comparison table at noise 0 vs 0.05
-    generate_score_comparison_table(main_plots_dir, analysis_dir, rename_map)
-    
-    # Generate variance analysis for DBS, AIF-C, and QL-C
-    generate_variance_analysis(analysis_dir, rename_map)
-    
-    # Generate variance visualizations
-    visualize_variance_analysis(analysis_dir, main_plots_dir)
-    
-    # Generate CVaR analysis
-    generate_cvar_analysis(main_plots_dir, rename_map)
-    
-    # Generate comprehensive analysis CSV
-    generate_comprehensive_analysis_csv(analysis_dir, rename_map)
-    
     print("\n" + "="*60)
     print("Plot generation complete!")
     print("="*60)
 
 
-def generate_cc_rate_comparison_table(main_plots_dir: Path, analysis_dir: Path, rename_map: dict):
+def generate_cc_rate_comparison_table(main_plots_dir: Path, analysis_dir: Path, rename_map: dict, game_name: str):
     """Generate table comparing CC rates at noise 0 vs 0.05."""
-    print("\n  Creating CC-Rate comparison table (noise 0 vs 0.05)...")
+    print(f"\n  Creating CC-Rate comparison table for {game_name} (noise 0 vs 0.05)...")
     
     comparison_data = []
     
     for pool_name in ['static', 'learning']:
-        pool_dir = Path(f'results/main/{pool_name}')
+        pool_dir = Path(f'results/main/{game_name}/{pool_name}')
         
         # Load CC rates for both noise levels
         cc_rates = load_all_agents_cc_rates(pool_dir, [0.0, 0.05])
@@ -413,14 +430,14 @@ def generate_cc_rate_comparison_table(main_plots_dir: Path, analysis_dir: Path, 
     print(f"    ✓ Saved to {analysis_dir / 'cc_rate_comparison_0_vs_005_formatted.csv'}")
 
 
-def generate_score_comparison_table(main_plots_dir: Path, analysis_dir: Path, rename_map: dict):
+def generate_score_comparison_table(main_plots_dir: Path, analysis_dir: Path, rename_map: dict, game_name: str):
     """Generate table comparing scores at noise 0 vs 0.05."""
-    print("\n  Creating Score comparison table (noise 0 vs 0.05)...")
+    print(f"\n  Creating Score comparison table for {game_name} (noise 0 vs 0.05)...")
     
     comparison_data = []
     
     for pool_name in ['static', 'learning']:
-        pool_dir = Path(f'results/main/{pool_name}')
+        pool_dir = Path(f'results/main/{game_name}/{pool_name}')
         
         # Load scores for both noise levels
         scores = load_all_agents_scores(pool_dir, [0.0, 0.05])
@@ -493,9 +510,9 @@ def generate_score_comparison_table(main_plots_dir: Path, analysis_dir: Path, re
     print(f"    ✓ Saved to {analysis_dir / 'score_comparison_0_vs_005_formatted.csv'}")
 
 
-def generate_variance_analysis(analysis_dir: Path, rename_map: dict):
+def generate_variance_analysis(analysis_dir: Path, rename_map: dict, game_name: str):
     """Analyze variance differences between DBS, AIF-C, and QL-C."""
-    print("\n  Analyzing variance for DBS, AIF-C, and QL-C...")
+    print(f"\n  Analyzing variance for DBS, AIF-C, and QL-C for {game_name}...")
     
     # Agents to compare: DBS (8), AIF-C (1), QL-C (3)
     agent_indices = {
@@ -507,7 +524,7 @@ def generate_variance_analysis(analysis_dir: Path, rename_map: dict):
     variance_results = []
     
     for pool_name in ['static', 'learning']:
-        pool_dir = Path(f'results/main/{pool_name}')
+        pool_dir = Path(f'results/main/{game_name}/{pool_name}')
         
         print(f"    Processing {pool_name} pool...")
         
@@ -518,6 +535,8 @@ def generate_variance_analysis(analysis_dir: Path, rename_map: dict):
             for agent_idx, agent_name in agent_indices.items():
                 agent_dir = f"{agent_idx}_{''}"  # Need to find full dir name
                 # Find the actual directory
+                if not pool_dir.exists():
+                    continue
                 for d in pool_dir.iterdir():
                     if d.is_dir() and d.name.startswith(f"{agent_idx}_"):
                         scores = load_agent_repetition_scores(pool_dir, d.name, noise)
@@ -558,10 +577,12 @@ def generate_variance_analysis(analysis_dir: Path, rename_map: dict):
     pairwise_summary = []
     
     for pool_name in ['static', 'learning']:
-        pool_dir = Path(f'results/main/{pool_name}')
+        pool_dir = Path(f'results/main/{game_name}/{pool_name}')
         
         for noise in [0.0, 0.05, 0.10, 0.15, 0.20, 0.25]:
             data_dict = {}
+            if not pool_dir.exists():
+                continue
             for agent_idx, agent_name in agent_indices.items():
                 for d in pool_dir.iterdir():
                     if d.is_dir() and d.name.startswith(f"{agent_idx}_"):
@@ -852,9 +873,9 @@ def calculate_metric_cvar(pool_dir: Path, agent_dir: str, noise_level: float,
     return np.nan
 
 
-def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
+def generate_cvar_analysis(plots_dir: Path, rename_map: dict, game_name: str):
     """Generate CVaR analysis comparing architectures (AIF vs QL vs BQL) within strategy types."""
-    print("\n  Generating CVaR (5%) analysis comparing architectures...")
+    print(f"\n  Generating CVaR (5%) analysis comparing architectures for {game_name}...")
     
     # Agent groups: Compare architectures within strategy types
     architecture_groups = {
@@ -879,7 +900,9 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
     noise_levels_list = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25]
     
     for pool_name in ['static', 'learning']:
-        pool_dir = Path(f'results/main/{pool_name}')
+        pool_dir = Path(f'results/main/{game_name}/{pool_name}')
+        if not pool_dir.exists():
+            continue
         plots_subdir = cvar_plots_dir / pool_name
         plots_subdir.mkdir(exist_ok=True)
         
@@ -995,10 +1018,10 @@ def generate_cvar_analysis(plots_dir: Path, rename_map: dict):
     print(f"    ✓ CVaR visualizations saved to {cvar_plots_dir}")
 
 
-def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
+def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict, game_name: str):
     """Generate a comprehensive CSV with all analysis data per agent per noise level."""
     print("\n" + "="*60)
-    print("Generating comprehensive analysis CSV...")
+    print(f"Generating comprehensive analysis CSV for {game_name}...")
     print("="*60)
     
     from experiments.result_utils import load_tournament_results, get_agent_dirs
@@ -1017,7 +1040,9 @@ def generate_comprehensive_analysis_csv(analysis_dir: Path, rename_map: dict):
     
     for pool_name in ['static', 'learning']:
         print(f"\n  Processing {pool_name} pool...")
-        pool_dir = Path(f'results/main/{pool_name}')
+        pool_dir = Path(f'results/main/{game_name}/{pool_name}')
+        if not pool_dir.exists():
+            continue
         agent_dirs = get_agent_dirs(pool_dir)
         
         # Load reference agent scores for variance comparisons

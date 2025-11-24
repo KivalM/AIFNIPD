@@ -92,19 +92,29 @@ strategies = [
     ),
 ]
 
+# Define games
+games = {
+    "pd": axl.Game(r=3, s=0, t=5, p=1),
+    "chicken": axl.Game(r=3, s=1, t=4, p=0),
+    "stag": axl.Game(r=4, s=0, t=3, p=3),
+}
+
 def run_self_play_experiment(strategies):
     """Run a single round-robin tournament with all strategies."""
-    handler = FileSystemHandler(root_dir="results/sp")
-    noise_tournament = NoiseTournament(
-        players=strategies,  # All strategies play against each other in round-robin
-        noise_levels=noise_levels,
-        repetitions=repetitions,
-        seed=seed,
-        callback=handler.save_results,
-        skip_callback=handler.skip_run,
-    )
-    noise_tournament.run(turns=turns, processes=processes)
-    print(f"Results are saved in the '{handler.root_dir}' directory.")
+    for game_name, game in games.items():
+        print(f"\nRunning self-play experiments for {game_name}...")
+        handler = FileSystemHandler(root_dir=f"results/sp/{game_name}")
+        noise_tournament = NoiseTournament(
+            players=strategies,  # All strategies play against each other in round-robin
+            noise_levels=noise_levels,
+            repetitions=repetitions,
+            seed=seed,
+            game=game,
+            callback=handler.save_results,
+            skip_callback=handler.skip_run,
+        )
+        noise_tournament.run(turns=turns, processes=processes)
+        print(f"Results for {game_name} are saved in the '{handler.root_dir}' directory.")
 
 
 def analyze_results():
@@ -113,11 +123,9 @@ def analyze_results():
     print("Analyzing Self-Play Tournament Results")
     print("="*60)
     
-    # Setup
-    sp_dir = Path("results/sp")
-    output_dir = Path("results/sp/heatmaps")
-    csv_output_dir = Path("results/sp/matrices")
-    
+    # Setup publication style
+    setup_publication_style(use_latex=False)
+
     # Agent rename map for cleaner labels
     rename_map = {
         0: 'QL',
@@ -131,96 +139,108 @@ def analyze_results():
         8: 'AIF-S-U',
         9: 'AIF-S-N',
     }
-    
-    # Setup publication style
-    setup_publication_style(use_latex=False)
-    
-    # Generate individual heatmaps for each noise level
-    print("\n1. Generating individual heatmaps for each noise level...")
-    generate_selfplay_heatmaps(
-        sp_dir=sp_dir,
-        noise_levels=noise_levels,
-        output_dir=output_dir,
-        rename_map=rename_map,
-        figsize=(14, 12)
-    )
-    
-    # Generate combined grid plots
-    print("\n2. Generating combined grid plots...")
-    
-    print("  Creating CC rate grid...")
-    create_combined_heatmap_grid(
-        sp_dir=sp_dir,
-        noise_levels=noise_levels,
-        output_dir=output_dir,
-        metric='cc_rate',
-        rename_map=rename_map,
-        max_cols=3
-    )
-    
-    print("  Creating CD rate grid...")
-    create_combined_heatmap_grid(
-        sp_dir=sp_dir,
-        noise_levels=noise_levels,
-        output_dir=output_dir,
-        metric='cd_rate',
-        rename_map=rename_map,
-        max_cols=3
-    )
-    
-    print("  Creating normalized cooperation grid...")
-    create_combined_heatmap_grid(
-        sp_dir=sp_dir,
-        noise_levels=noise_levels,
-        output_dir=output_dir,
-        metric='norm_coop',
-        rename_map=rename_map,
-        max_cols=3
-    )
-    
-    print("  Creating score grid...")
-    create_combined_heatmap_grid(
-        sp_dir=sp_dir,
-        noise_levels=noise_levels,
-        output_dir=output_dir,
-        metric='score',
-        rename_map=rename_map,
-        max_cols=3
-    )
-    
-    # Export matrices to CSV for further analysis
-    print("\n3. Exporting matrices to CSV...")
-    export_matrices_to_csv(
-        sp_dir=sp_dir,
-        noise_levels=noise_levels,
-        output_dir=csv_output_dir,
-        rename_map=rename_map
-    )
-    
-    # Generate comparison tables
-    print("\n4. Generating comparison tables...")
-    generate_selfplay_comparison_tables(
-        sp_dir=sp_dir,
-        output_dir=csv_output_dir,
-        rename_map=rename_map,
-        noise_levels=[0.0, 0.05]
-    )
-    
-    # Generate diagonal (self vs self) comparison tables
-    print("\n5. Generating diagonal (self-play) comparison tables...")
-    generate_selfplay_diagonal_comparison_tables(
-        sp_dir=sp_dir,
-        output_dir=csv_output_dir,
-        rename_map=rename_map,
-        noise_levels=[0.0, 0.05]
-    )
-    
-    print("\n" + "="*60)
-    print("Analysis complete!")
-    print(f"Heatmaps saved to: {output_dir}")
-    print(f"CSV matrices saved to: {csv_output_dir}")
-    print(f"Comparison tables saved to: {csv_output_dir}")
-    print("="*60)
+
+    for game_name in games.keys():
+        print(f"\nAnalyzing results for {game_name}...")
+        
+        # Setup
+        sp_dir = Path(f"results/sp/{game_name}")
+        if not sp_dir.exists():
+            print(f"Warning: {sp_dir} does not exist. Skipping.")
+            continue
+            
+        output_dir = Path(f"results/sp/{game_name}/heatmaps")
+        csv_output_dir = Path(f"results/sp/{game_name}/matrices")
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate individual heatmaps for each noise level
+        print("\n1. Generating individual heatmaps for each noise level...")
+        generate_selfplay_heatmaps(
+            sp_dir=sp_dir,
+            noise_levels=noise_levels,
+            output_dir=output_dir,
+            rename_map=rename_map,
+            figsize=(14, 12)
+        )
+        
+        # Generate combined grid plots
+        print("\n2. Generating combined grid plots...")
+        
+        print("  Creating CC rate grid...")
+        create_combined_heatmap_grid(
+            sp_dir=sp_dir,
+            noise_levels=noise_levels,
+            output_dir=output_dir,
+            metric='cc_rate',
+            rename_map=rename_map,
+            max_cols=3
+        )
+        
+        print("  Creating CD rate grid...")
+        create_combined_heatmap_grid(
+            sp_dir=sp_dir,
+            noise_levels=noise_levels,
+            output_dir=output_dir,
+            metric='cd_rate',
+            rename_map=rename_map,
+            max_cols=3
+        )
+        
+        print("  Creating normalized cooperation grid...")
+        create_combined_heatmap_grid(
+            sp_dir=sp_dir,
+            noise_levels=noise_levels,
+            output_dir=output_dir,
+            metric='norm_coop',
+            rename_map=rename_map,
+            max_cols=3
+        )
+        
+        print("  Creating score grid...")
+        create_combined_heatmap_grid(
+            sp_dir=sp_dir,
+            noise_levels=noise_levels,
+            output_dir=output_dir,
+            metric='score',
+            rename_map=rename_map,
+            max_cols=3
+        )
+        
+        # Export matrices to CSV for further analysis
+        print("\n3. Exporting matrices to CSV...")
+        export_matrices_to_csv(
+            sp_dir=sp_dir,
+            noise_levels=noise_levels,
+            output_dir=csv_output_dir,
+            rename_map=rename_map
+        )
+        
+        # Generate comparison tables
+        print("\n4. Generating comparison tables...")
+        generate_selfplay_comparison_tables(
+            sp_dir=sp_dir,
+            output_dir=csv_output_dir,
+            rename_map=rename_map,
+            noise_levels=[0.0, 0.05]
+        )
+        
+        # Generate diagonal (self vs self) comparison tables
+        print("\n5. Generating diagonal (self-play) comparison tables...")
+        generate_selfplay_diagonal_comparison_tables(
+            sp_dir=sp_dir,
+            output_dir=csv_output_dir,
+            rename_map=rename_map,
+            noise_levels=[0.0, 0.05]
+        )
+        
+        print("\n" + "="*60)
+        print(f"Analysis for {game_name} complete!")
+        print(f"Heatmaps saved to: {output_dir}")
+        print(f"CSV matrices saved to: {csv_output_dir}")
+        print(f"Comparison tables saved to: {csv_output_dir}")
+        print("="*60)
 
 
 if __name__ == "__main__":

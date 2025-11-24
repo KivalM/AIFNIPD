@@ -77,8 +77,13 @@ def _run_single_tournament_worker(
     for player in players:
         if hasattr(player, "set_seed"):
             player.set_seed(config["seed"])
+            
+    # Extract game if present
+    game = config.get("game", None)
+    
     tour = CustomTournament(
         players=players,
+        game=game,
         noise=config["noise"],
         turns=config["turns"],
         repetitions=1,  # We handle repetitions externally
@@ -120,6 +125,7 @@ class NoiseTournament:
         noise_levels: List[float],
         repetitions: int,
         seed: int,
+        game: Optional[axl.Game] = None,
         callback: Optional[
             Callable[[axl.ResultSet, Dict[str, Any], Dict], None]
         ] = None,
@@ -131,6 +137,7 @@ class NoiseTournament:
         self.callback = callback
         self.skip_callback = skip_callback
         self.seed = seed
+        self.game = game  # Default to None (standard PD) if not provided
         self.rng = np.random.default_rng(seed)
 
         player_names = sorted([str(p) for p in self.players])
@@ -138,6 +145,10 @@ class NoiseTournament:
         self.player_names_hash = hashlib.md5(
             player_string.encode("utf-8")
         ).hexdigest()
+
+    def set_game(self, game: axl.Game):
+        """Set the game to be played (e.g., Chicken, Stag Hunt)."""
+        self.game = game
 
     def run(self, turns: int = 200, processes: Optional[int] = None):
         """
@@ -164,6 +175,7 @@ class NoiseTournament:
                     "turns": turns,
                     "players": self.players,
                     "player_names_hash": self.player_names_hash,
+                    "game": self.game,
                 }
 
                 if self.skip_callback and self.skip_callback(config):
