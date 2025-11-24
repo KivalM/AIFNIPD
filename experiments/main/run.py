@@ -105,6 +105,7 @@ strategies = [
         seed=seed,
         lr_B=1,
         action_selection="deterministic",
+        use_noisy_observation_model=True,
     ),
 ]
 

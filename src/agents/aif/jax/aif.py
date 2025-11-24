@@ -66,6 +66,7 @@ def make_agent(
     cooperative_preference: bool = False,
     pB_scale: float = 100,
     noise: float = 0.0,
+    use_noisy_observation_model: bool = False,
     action_selection: str = "stochastic",
     use_utility: bool = True,
     use_states_info_gain: bool = True,
@@ -83,6 +84,7 @@ def make_agent(
         cooperative_preference: If True, use cooperative (nash) preferences; if False, use standard preferences
         pB_scale: Scale for Dirichlet prior over B
         noise: Noise level for observations (0.0 = no noise)
+        use_noisy_observation_model: If True, apply noise to A matrix; if False, use perfect observations
         action_selection: "stochastic" or "deterministic"
         use_utility: Whether to use utility (preference) term
         use_states_info_gain: Whether to use state information gain
@@ -90,8 +92,8 @@ def make_agent(
     """
     A_1 = np.eye(num_states)
     
-    # Apply noise to observation matrix if noise > 0
-    if noise > 0.0:
+    # Apply noise to observation matrix if requested and noise > 0
+    if use_noisy_observation_model and noise > 0.0:
         P0 = np.eye(num_states - 1)
         P_noisy = noisy_obs_matrix(noise, P0)
         A_1[1:, 1:] = P_noisy
@@ -207,6 +209,7 @@ class ActiveInferenceAgent(JointWrapper):
         use_states_info_gain: bool = True,
         use_param_info_gain: bool = True,
         noise: float = 0.0,
+        use_noisy_observation_model: bool = False,
         pB_decay_rate: float = 1.0,
     ) -> None:
         super().__init__()
@@ -225,6 +228,7 @@ class ActiveInferenceAgent(JointWrapper):
         self.use_states_info_gain = use_states_info_gain
         self.use_param_info_gain = use_param_info_gain
         self.noise = noise
+        self.use_noisy_observation_model = use_noisy_observation_model
         self.pB_decay_rate = pB_decay_rate
         
         # Use deques with appropriate maxlen for rolling window
@@ -252,6 +256,7 @@ class ActiveInferenceAgent(JointWrapper):
             cooperative_preference=self.cooperative_preference,
             pB_scale=self.pB_scale,
             noise=self.noise,
+            use_noisy_observation_model=self.use_noisy_observation_model,
             action_selection=self.action_selection,
             use_utility=self.use_utility,
             use_states_info_gain=self.use_states_info_gain,
@@ -404,4 +409,14 @@ if __name__ == "__main__":
     match3 = Match((agent3, axl.Grudger()), turns=1000, noise=0.05)
     match3.play()
     print("Agent with decay and cooperative preference:", match3.final_score())
+    
+    # Test with noisy observation model
+    agent4 = ActiveInferenceAgent(
+        seed=0, lr_B=1.5, update_interval=10, alpha=0.6, 
+        bias=0.5, cooperative_preference=False, pB_scale=1, policy_len=5,
+        action_selection="deterministic", use_noisy_observation_model=True
+    )
+    match4 = Match((agent4, axl.TitForTat()), turns=1000, noise=0.05)
+    match4.play()
+    print("Agent with noisy observation model:", match4.final_score())
 
