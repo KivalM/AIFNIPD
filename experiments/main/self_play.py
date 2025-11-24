@@ -1,12 +1,7 @@
 from tournament.handler import FileSystemHandler
 from tournament.tournament import NoiseTournament
 import multiprocessing
-from agents.aif.jax.five_state import JaxFiveStateAgent
-from agents.aif.jax.five_state_deterministic import JaxFiveStateAgentDeterministic
-from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
-from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
-from agents.aif.jax.five_state_deterministic_utility import JaxFiveStateAgentDeterministicUtility
-from agents.aif.jax.five_state_deterministic_noise import JaxFiveStateAgentDeterministicNoisy
+from agents.aif.jax.aif import ActiveInferenceAgent
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
 from agents.qlearner import JaxQLearner, CooperativeQLearner
 from agents.psrl import PSRL, CooperativePSRL
@@ -56,38 +51,44 @@ strategies = [
         discount_rate=0.95,
         value_iteration_steps=50,
     ),
-    JaxFiveStateAgentDeterministic(
+    ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="standard",
+        cooperative_preference=False,
         policy_len=5,
         update_interval=10,
         seed=seed,
         lr_B=1,
+        action_selection="deterministic",
     ),
-    JaxFiveStateAgentDeterministicUtility(
+    ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="standard",
+        cooperative_preference=False,
         policy_len=5,
         update_interval=10,
         seed=seed,
         lr_B=1,
+        action_selection="deterministic",
+        use_states_info_gain=False,
+        use_param_info_gain=False,
     ),
-    JaxFiveStateAgentDeterministicNoisy(
+    ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="standard",
+        cooperative_preference=False,
         policy_len=5,
         update_interval=10,
         seed=seed,
         lr_B=1,
+        action_selection="deterministic",
+        use_noisy_observation_model=True,
     ),
 ]
 
