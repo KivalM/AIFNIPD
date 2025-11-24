@@ -4,12 +4,7 @@ from tournament.tournament import NoiseTournament
 from experiments import static_pool, learn_pool
 import itertools
 import multiprocessing
-from agents.aif.jax.five_state import JaxFiveStateAgent
-from agents.aif.jax.five_state_noise import JaxFiveStateAgentNoisy
-from agents.aif.jax.five_state_utility import JaxFiveStateAgentUtility
-from agents.aif.jax.five_state_deterministic import JaxFiveStateAgentDeterministic
-from agents.aif.jax.five_state_deterministic_utility import JaxFiveStateAgentDeterministicUtility
-from agents.aif.jax.five_state_deterministic_noise import JaxFiveStateAgentDeterministicNoisy
+from agents.aif.jax.aif import ActiveInferenceAgent
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
 from agents.qlearner import JaxQLearner, CooperativeQLearner
 from agents.psrl import PSRL, CooperativePSRL
@@ -42,10 +37,10 @@ import seaborn as sns
 from scipy import stats
 
 # Environment parameters
-noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
-repetitions = 30
+noise_levels = list(np.arange(0, 0.15, 0.05).round(2))
+repetitions = 1
 turns = 1000
-processes = 20
+processes = 10
 seed = 42
 
 strategies = [
@@ -73,44 +68,49 @@ strategies = [
         discount_rate=0.95,
         value_iteration_steps=50,
     ),
-    JaxFiveStateAgentDeterministic(
+    ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="standard",
+        cooperative_preference=False,
         policy_len=5,
         update_interval=5,
         seed=seed,
         lr_B=1,
+        action_selection="deterministic",
     ),
-    JaxFiveStateAgentDeterministicUtility(
+    ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="standard",
+        cooperative_preference=False,
         policy_len=5,
         update_interval=10,
         seed=seed,
         lr_B=1,
+        action_selection="deterministic",
+        use_states_info_gain=False,
+        use_param_info_gain=False,
     ),
-    JaxFiveStateAgentDeterministicNoisy(
+    ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
         alpha=1,
         bias=0.5,
-        preference="standard",
+        cooperative_preference=False,
         policy_len=5,
         update_interval=10,
         seed=seed,
         lr_B=1,
+        action_selection="deterministic",
     ),
 ]
 
 def run_experiment(strategies, opponents, dir_name):
     for i, strategy in enumerate[Any](strategies):
-        handler = FileSystemHandler(root_dir=f"results/main/{dir_name}/{i}_{strategy.__class__.__name__}")
+        handler = FileSystemHandler(root_dir=f"results_updated_version/main")
         noise_tournament = NoiseTournament(
             players=[strategy] + opponents,
             noise_levels=noise_levels,
@@ -1369,4 +1369,4 @@ if __name__ == "__main__":
     run_experiment(strategies, learn_pool, "learning")
     
     # Generate plots
-    generate_plots()
+    # generate_plots()
