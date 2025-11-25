@@ -38,7 +38,7 @@ from scipy import stats
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.15, 0.05).round(2))
-repetitions = 1
+repetitions = 5
 turns = 1000
 processes = 10
 seed = 42
@@ -82,7 +82,7 @@ strategies = [
         bias=0.5,
         cooperative_preference=False,
         policy_len=5,
-        update_interval=5,
+        update_interval=10,
         seed=seed,
         lr_B=1,
         action_selection="deterministic",
