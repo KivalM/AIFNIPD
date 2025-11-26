@@ -21,7 +21,7 @@ START, CC, CD, DC, DD = 0, 1, 2, 3, 4
 # This is our single, pure JIT-compiled function for one turn's logic.
 # We use `static_argnames` to tell JAX which arguments are compile-time constants.
 # This results in more efficient code.
-@partial(jax.jit, static_argnames=("learning_rate", "discount_rate", "action_selection_parameter", "R", "P", "S", "T"))
+@partial(jax.jit, static_argnames=("learning_rate", "discount_rate", "action_selection_parameter", "min_epsilon", "decay_rate", "R", "P", "S", "T"))
 def _strategy_step(
     # State variables
     Qs,
@@ -29,13 +29,17 @@ def _strategy_step(
     prev_state,
     prev_action,
     rng_key,
+    epsilon,
     # Information from the current turn
+    current_state,
     is_first_turn,
     opponent_last_action,
     # Hyperparameters (static)
     learning_rate,
     discount_rate,
     action_selection_parameter,
+    min_epsilon,
+    decay_rate,
     R, P, S, T,
 ):
     """
@@ -44,9 +48,8 @@ def _strategy_step(
     # Create the payoff matrix inside the function
     payoff_matrix = jnp.array([[R, S], [T, P]], dtype=DTYPE)
     
-    # 1. Determine the current state and reward based on the last turn
+    # 1. Determine the reward based on the last turn
     my_last_action = jnp.array(prev_action, dtype=jnp.int32)
-    current_state = 1 + (my_last_action * 2) + opponent_last_action
     reward = payoff_matrix[my_last_action, opponent_last_action]
 
     # 2. Perform Q-Learning Update (from the previous turn's state/action)
@@ -64,9 +67,9 @@ def _strategy_step(
         lambda: (Qs, Vs, current_state), # Use updated tables and current state
     )
 
-    # 3. Select the next action using epsilon-greedy
+    # 3. Select the next action using epsilon-greedy (with decaying epsilon)
     rng_key, subkey1, subkey2 = jr.split(rng_key, 3)
-    p = 1.0 - action_selection_parameter
+    p = 1.0 - epsilon
     exploit = jr.uniform(subkey1) < p
 
     action_idx = lax.cond(
@@ -75,11 +78,14 @@ def _strategy_step(
         lambda: jr.choice(subkey2, jnp.array([COOPERATE, DEFECT])),
     )
 
-    # 4. Return all updated state variables
-    return Qs, Vs, state_for_action_selection, action_idx, rng_key, action_idx
+    # 4. Calculate next epsilon
+    next_epsilon = jnp.maximum(min_epsilon, epsilon * decay_rate)
+
+    # 5. Return all updated state variables
+    return Qs, Vs, state_for_action_selection, action_idx, rng_key, next_epsilon, action_idx
 
 
-@partial(jax.jit, static_argnames=("learning_rate", "discount_rate", "action_selection_parameter", "R", "P", "S", "T"))
+@partial(jax.jit, static_argnames=("learning_rate", "discount_rate", "action_selection_parameter", "min_epsilon", "decay_rate", "R", "P", "S", "T"))
 def _cooperative_strategy_step(
     # State variables
     Qs,
@@ -87,13 +93,17 @@ def _cooperative_strategy_step(
     prev_state,
     prev_action,
     rng_key,
+    epsilon,
     # Information from the current turn
+    current_state,
     is_first_turn,
     opponent_last_action,
     # Hyperparameters (static)
     learning_rate,
     discount_rate,
     action_selection_parameter,
+    min_epsilon,
+    decay_rate,
     R, P, S, T,
 ):
     """
@@ -103,9 +113,8 @@ def _cooperative_strategy_step(
     # Create the payoff matrix with DC reward set to 0
     payoff_matrix = jnp.array([[R, S], [0, P]], dtype=DTYPE)
     
-    # 1. Determine the current state and reward based on the last turn
+    # 1. Determine the reward based on the last turn
     my_last_action = jnp.array(prev_action, dtype=jnp.int32)
-    current_state = 1 + (my_last_action * 2) + opponent_last_action
     reward = payoff_matrix[my_last_action, opponent_last_action]
 
     # 2. Perform Q-Learning Update (from the previous turn's state/action)
@@ -123,9 +132,9 @@ def _cooperative_strategy_step(
         lambda: (Qs, Vs, current_state), # Use updated tables and current state
     )
 
-    # 3. Select the next action using epsilon-greedy
+    # 3. Select the next action using epsilon-greedy (with decaying epsilon)
     rng_key, subkey1, subkey2 = jr.split(rng_key, 3)
-    p = 1.0 - action_selection_parameter
+    p = 1.0 - epsilon
     exploit = jr.uniform(subkey1) < p
 
     action_idx = lax.cond(
@@ -134,8 +143,11 @@ def _cooperative_strategy_step(
         lambda: jr.choice(subkey2, jnp.array([COOPERATE, DEFECT])),
     )
 
-    # 4. Return all updated state variables
-    return Qs, Vs, state_for_action_selection, action_idx, rng_key, action_idx
+    # 4. Calculate next epsilon
+    next_epsilon = jnp.maximum(min_epsilon, epsilon * decay_rate)
+
+    # 5. Return all updated state variables
+    return Qs, Vs, state_for_action_selection, action_idx, rng_key, next_epsilon, action_idx
 
 
 class JaxQLearner(Player):
@@ -149,12 +161,15 @@ class JaxQLearner(Player):
     discount_rate = 0.9
     action_selection_parameter = 0.1
     name = "Jax QLearner"
+    min_epsilon = 0.01
+    decay_rate = 0.999
 
-    def __init__(self, learning_rate: float = 0.5, discount_rate: float = 0.9, action_selection_parameter: float = 0.1) -> None:
+    def __init__(self, learning_rate: float = 0.5, discount_rate: float = 0.9, action_selection_parameter: float = 0.1, memory_length: int = 1) -> None:
         super().__init__()
         self.learning_rate = learning_rate
         self.discount_rate = discount_rate
         self.action_selection_parameter = action_selection_parameter
+        self.memory_length = memory_length
         self.classifier["stochastic"] = True
         self.set_seed(0)
         self.init_state()
@@ -165,14 +180,39 @@ class JaxQLearner(Player):
 
     def init_state(self):
         """Initializes or resets the agent's state."""
-        self.Qs = jnp.zeros((5, 2), dtype=DTYPE)
-        self.Vs = jnp.zeros(5, dtype=DTYPE)
+        num_states = 4**self.memory_length + 1
+        self.Qs = jnp.zeros((num_states, 2), dtype=DTYPE)
+        self.Vs = jnp.zeros(num_states, dtype=DTYPE)
         self.prev_state = START
         # Initialize prev_action to Cooperate for the first update step
         self.prev_action = COOPERATE
+        # Initialize epsilon
+        self.epsilon = self.action_selection_parameter
 
     def receive_match_attributes(self):
         (self.R, self.P, self.S, self.T) = self.match_attributes["game"].RPST()
+
+    def _calculate_state(self, opponent: Player) -> int:
+        """Calculates the state index based on interaction history."""
+        if len(self.history) < self.memory_length:
+            return START
+        
+        state_idx = 0
+        # Iterate backwards from the most recent turn
+        for i in range(self.memory_length):
+            # Access from the end: -1 is last turn, -2 is turn before that
+            turn_idx = -1 - i
+            
+            # Use .value to get 0 (C) or 1 (D)
+            my_action = int(self.history[turn_idx].value)
+            opp_action = int(opponent.history[turn_idx].value)
+            
+            # Encode: 0=CC, 1=CD, 2=DC, 3=DD
+            # COOPERATE=0, DEFECT=1
+            code = (my_action * 2) + opp_action
+            state_idx += code * (4**i)
+            
+        return 1 + state_idx
 
     def strategy(self, opponent: Player) -> Action:
         is_first_turn = len(self.history) == 0
@@ -180,18 +220,24 @@ class JaxQLearner(Player):
         # Get opponent's last action, default to Cooperate if first turn
         opponent_last_action = opponent.history[-1].value if not is_first_turn else COOPERATE
 
+        current_state = self._calculate_state(opponent)
+
         # Call the single, fast JIT'd function
-        new_Qs, new_Vs, current_state, action_idx, new_rng_key, new_action = _strategy_step(
+        new_Qs, new_Vs, state_for_selection, action_idx, new_rng_key, new_epsilon, new_action = _strategy_step(
             self.Qs,
             self.Vs,
             self.prev_state,
             self.prev_action,
             self.rng_key,
+            self.epsilon,
+            current_state,
             is_first_turn,
             opponent_last_action,
             self.learning_rate,
             self.discount_rate,
             self.action_selection_parameter,
+            self.min_epsilon,
+            self.decay_rate,
             self.R, self.P, self.S, self.T,
         )
 
@@ -199,7 +245,8 @@ class JaxQLearner(Player):
         self.Qs = new_Qs
         self.Vs = new_Vs
         self.rng_key = new_rng_key
-        self.prev_state = int(current_state)
+        self.epsilon = new_epsilon
+        self.prev_state = int(state_for_selection)
         self.prev_action = int(new_action)
         
         return C if action_idx == COOPERATE else D
@@ -239,18 +286,24 @@ class CooperativeQLearner(JaxQLearner):
         # Get opponent's last action, default to Cooperate if first turn
         opponent_last_action = opponent.history[-1].value if not is_first_turn else COOPERATE
 
+        current_state = self._calculate_state(opponent)
+
         # Call the single, fast JIT'd function with modified payoff matrix
-        new_Qs, new_Vs, current_state, action_idx, new_rng_key, new_action = _cooperative_strategy_step(
+        new_Qs, new_Vs, state_for_selection, action_idx, new_rng_key, new_epsilon, new_action = _cooperative_strategy_step(
             self.Qs,
             self.Vs,
             self.prev_state,
             self.prev_action,
             self.rng_key,
+            self.epsilon,
+            current_state,
             is_first_turn,
             opponent_last_action,
             self.learning_rate,
             self.discount_rate,
             self.action_selection_parameter,
+            self.min_epsilon,
+            self.decay_rate,
             self.R, self.P, self.S, self.T,
         )
 
@@ -258,7 +311,8 @@ class CooperativeQLearner(JaxQLearner):
         self.Qs = new_Qs
         self.Vs = new_Vs
         self.rng_key = new_rng_key
-        self.prev_state = int(current_state)
+        self.epsilon = new_epsilon
+        self.prev_state = int(state_for_selection)
         self.prev_action = int(new_action)
         
         return C if action_idx == COOPERATE else D
@@ -267,26 +321,67 @@ if __name__ == "__main__":
     import axelrod as axl
     import time
     
-    # Test the original QLearner
-    agent = HesitantQLearner()
-    opponent = axl.Defector()
+    # Test the QLearner
+    agent = JaxQLearner(0.9, 0.9, 0.1, 1)
+    opponent = JaxQLearner(0.9, 0.9, 0.1, 1)
+
     
-    start_time = time.time()
-    match = axl.Match((agent, opponent), turns=10000, noise=0.05) # Increased turns to see the speedup
+    
+    match = axl.Match((agent, opponent), turns=1000, noise=0.00) # Increased turns to see the speedup
     match.play()
-    end_time = time.time()
-    
-    print(f"Original QLearner match finished in {end_time - start_time:.4f} seconds.")
+ 
     print(f"Final score per turn: {match.final_score_per_turn()}")
+    average_score = sum(match.final_score_per_turn()) / len(match.final_score_per_turn())
+    print(f"Average score per turn: {average_score}")
     
-    # Test the new CooperativeQLearner
-    cooperative_agent = CooperativeQLearner()
-    cooperative_opponent = axl.Defector()
+        # Test the QLearner
+    agent = JaxQLearner(0.9, 0.9, 0.1, 2)
+    opponent = JaxQLearner(0.9, 0.9, 0.1, 2)
+
     
-    start_time = time.time()
-    cooperative_match = axl.Match((cooperative_agent, cooperative_opponent), turns=10000, noise=0.05)
-    cooperative_match.play()
-    end_time = time.time()
     
-    print(f"\nCooperative QLearner match finished in {end_time - start_time:.4f} seconds.")
-    print(f"Final score per turn: {cooperative_match.final_score_per_turn()}")
+    match = axl.Match((agent, opponent), turns=1000, noise=0.00) # Increased turns to see the speedup
+    match.play()
+ 
+    print(f"Final score per turn: {match.final_score_per_turn()}")
+    average_score = sum(match.final_score_per_turn()) / len(match.final_score_per_turn())
+    print(f"Average score per turn: {average_score}")
+
+            # Test the QLearner
+    agent = JaxQLearner(0.9, 0.9, 0.1, 3)
+    opponent = JaxQLearner(0.9, 0.9, 0.1, 3)
+
+    
+    
+    match = axl.Match((agent, opponent), turns=1000, noise=0.00) # Increased turns to see the speedup
+    match.play()
+ 
+    print(f"Final score per turn: {match.final_score_per_turn()}")
+    average_score = sum(match.final_score_per_turn()) / len(match.final_score_per_turn())
+    print(f"Average score per turn: {average_score}")
+
+                # Test the QLearner
+    agent = JaxQLearner(0.9, 0.9, 0.1, 4)
+    opponent = JaxQLearner(0.9, 0.9, 0.1, 4)
+
+    
+    
+    match = axl.Match((agent, opponent), turns=1000, noise=0.00) # Increased turns to see the speedup
+    match.play()
+ 
+    print(f"Final score per turn: {match.final_score_per_turn()}")
+    average_score = sum(match.final_score_per_turn()) / len(match.final_score_per_turn())
+    print(f"Average score per turn: {average_score}")
+
+                    # Test the QLearner
+    agent = JaxQLearner(0.9, 0.9, 0.1, 5)
+    opponent = JaxQLearner(0.9, 0.9, 0.1, 5)
+
+    
+    
+    match = axl.Match((agent, opponent), turns=1000, noise=0.00) # Increased turns to see the speedup
+    match.play()
+ 
+    print(f"Final score per turn: {match.final_score_per_turn()}")
+    average_score = sum(match.final_score_per_turn()) / len(match.final_score_per_turn())
+    print(f"Average score per turn: {average_score}")

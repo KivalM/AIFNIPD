@@ -37,6 +37,7 @@ def _bql_strategy_step(
     prev_action,
     rng_key,
     # Information from the current turn
+    current_state,
     is_first_turn,
     opponent_last_action,
     # Hyperparameters (static)
@@ -51,9 +52,8 @@ def _bql_strategy_step(
     # Create the payoff matrix inside the function
     payoff_matrix = jnp.array([[R, S], [T, P]], dtype=DTYPE)
     
-    # 1. Determine the current state and reward based on the last turn
+    # 1. Determine the reward based on the last turn
     my_last_action = jnp.array(prev_action, dtype=jnp.int32)
-    current_state = 1 + (my_last_action * 2) + opponent_last_action
     reward = payoff_matrix[my_last_action, opponent_last_action]
 
     # 2. Perform Bayesian Q-Learning Update (Kalman filter style)
@@ -80,7 +80,7 @@ def _bql_strategy_step(
     # We use lax.cond to avoid breaking the JIT compilation
     mus, sigmas_sq, state_for_action_selection = lax.cond(
         is_first_turn,
-        lambda: (jnp.zeros((5, 2), dtype=DTYPE), jnp.ones((5, 2), dtype=DTYPE), START),
+        lambda: (jnp.zeros_like(mus), jnp.ones_like(sigmas_sq), START),
         lambda: (mus, sigmas_sq, current_state),
     )
 
@@ -106,6 +106,7 @@ def _cooperative_bql_strategy_step(
     prev_action,
     rng_key,
     # Information from the current turn
+    current_state,
     is_first_turn,
     opponent_last_action,
     # Hyperparameters (static)
@@ -120,9 +121,8 @@ def _cooperative_bql_strategy_step(
     # Create the payoff matrix with DC reward set to 0
     payoff_matrix = jnp.array([[R, S], [0, P]], dtype=DTYPE)
     
-    # 1. Determine the current state and reward based on the last turn
+    # 1. Determine the reward based on the last turn
     my_last_action = jnp.array(prev_action, dtype=jnp.int32)
-    current_state = 1 + (my_last_action * 2) + opponent_last_action
     reward = payoff_matrix[my_last_action, opponent_last_action]
 
     # 2. Perform Bayesian Q-Learning Update (Kalman filter style)
@@ -149,7 +149,7 @@ def _cooperative_bql_strategy_step(
     # We use lax.cond to avoid breaking the JIT compilation
     mus, sigmas_sq, state_for_action_selection = lax.cond(
         is_first_turn,
-        lambda: (jnp.zeros((5, 2), dtype=DTYPE), jnp.ones((5, 2), dtype=DTYPE), START),
+        lambda: (jnp.zeros_like(mus), jnp.ones_like(sigmas_sq), START),
         lambda: (mus, sigmas_sq, current_state),
     )
 
@@ -184,34 +184,62 @@ class JaxBayesianQLearner(Player):
     initial_variance = 1.0
     reward_variance = 1.0
 
-    def __init__(self, discount_rate: float = 0.9, initial_variance: float = 1.0, reward_variance: float = 1.0) -> None:
+    def __init__(self, discount_rate: float = 0.9, initial_variance: float = 1.0, reward_variance: float = 1.0, memory_length: int = 1) -> None:
         super().__init__()
         self.classifier["stochastic"] = True
+        self.memory_length = memory_length
         
         # Fix: Actually assign the parameters
         self.discount_rate = discount_rate
         self.initial_variance = initial_variance
         self.reward_variance = reward_variance
 
-        self.mus = jnp.zeros((5, 2))  # Mean of Q-values
+        self.set_seed(0)
+        self.init_state()
+
+    def set_seed(self, seed: int):
+        self.seed = seed
+        self.rng_key = jr.PRNGKey(self.seed)
+
+    def init_state(self):
+        """Initializes or resets the agent's state."""
+        num_states = 4**self.memory_length + 1
+        self.mus = jnp.zeros((num_states, 2), dtype=DTYPE)  # Mean of Q-values
         self.sigmas_sq = (
-            jnp.ones((5, 2)) * self.initial_variance
+            jnp.ones((num_states, 2), dtype=DTYPE) * self.initial_variance
         )  # Variance of Q-values
 
         self.prev_state = START
         # Fix: Initialize to COOPERATE instead of None to prevent indexing errors
         self.prev_action = COOPERATE
-        self.set_seed(0)
-
-    def set_seed(self, seed: int):
-        self.seed = seed
-        self.rng_key = jr.PRNGKey(self.seed)
 
     def receive_match_attributes(self):
         (R, P, S, T) = self.match_attributes["game"].RPST()
         # Fix: Use JAX array instead of nested dict for JIT compatibility
         self.payoff_matrix = jnp.array([[R, S], [T, P]], dtype=DTYPE)
         self.R, self.P, self.S, self.T = R, P, S, T
+
+    def _calculate_state(self, opponent: Player) -> int:
+        """Calculates the state index based on interaction history."""
+        if len(self.history) < self.memory_length:
+            return START
+        
+        state_idx = 0
+        # Iterate backwards from the most recent turn
+        for i in range(self.memory_length):
+            # Access from the end: -1 is last turn, -2 is turn before that
+            turn_idx = -1 - i
+            
+            # Use .value to get 0 (C) or 1 (D)
+            my_action = int(self.history[turn_idx].value)
+            opp_action = int(opponent.history[turn_idx].value)
+            
+            # Encode: 0=CC, 1=CD, 2=DC, 3=DD
+            # COOPERATE=0, DEFECT=1
+            code = (my_action * 2) + opp_action
+            state_idx += code * (4**i)
+            
+        return 1 + state_idx
 
     def strategy(self, opponent: Player) -> Action:
         """
@@ -222,13 +250,16 @@ class JaxBayesianQLearner(Player):
         # Get opponent's last action, default to COOPERATE if first turn
         opponent_last_action = opponent.history[-1].value if not is_first_turn else COOPERATE
 
+        current_state = self._calculate_state(opponent)
+
         # Call the single, fast JIT'd function
-        new_mus, new_sigmas_sq, current_state, action_idx, new_rng_key = _bql_strategy_step(
+        new_mus, new_sigmas_sq, state_for_selection, action_idx, new_rng_key = _bql_strategy_step(
             self.mus,
             self.sigmas_sq,
             self.prev_state,
             self.prev_action,
             self.rng_key,
+            current_state,
             is_first_turn,
             opponent_last_action,
             self.discount_rate,
@@ -240,18 +271,14 @@ class JaxBayesianQLearner(Player):
         self.mus = new_mus
         self.sigmas_sq = new_sigmas_sq
         self.rng_key = new_rng_key
-        self.prev_state = int(current_state)
+        self.prev_state = int(state_for_selection)
         self.prev_action = int(action_idx)
         
         return C if action_idx == COOPERATE else D
 
     def reset(self) -> None:
         super().reset()
-        self.mus = jnp.zeros((5, 2))
-        self.sigmas_sq = jnp.ones((5, 2)) * self.initial_variance
-        self.prev_state = START
-        # Fix: Initialize to COOPERATE instead of None
-        self.prev_action = COOPERATE
+        self.init_state()
 
 
 class RiskyBQLearner(JaxBayesianQLearner):
@@ -299,13 +326,16 @@ class CooperativeBQLearner(JaxBayesianQLearner):
         # Get opponent's last action, default to COOPERATE if first turn
         opponent_last_action = opponent.history[-1].value if not is_first_turn else COOPERATE
 
+        current_state = self._calculate_state(opponent)
+
         # Call the cooperative JIT'd function with DC reward = 0
-        new_mus, new_sigmas_sq, current_state, action_idx, new_rng_key = _cooperative_bql_strategy_step(
+        new_mus, new_sigmas_sq, state_for_selection, action_idx, new_rng_key = _cooperative_bql_strategy_step(
             self.mus,
             self.sigmas_sq,
             self.prev_state,
             self.prev_action,
             self.rng_key,
+            current_state,
             is_first_turn,
             opponent_last_action,
             self.discount_rate,
@@ -317,7 +347,7 @@ class CooperativeBQLearner(JaxBayesianQLearner):
         self.mus = new_mus
         self.sigmas_sq = new_sigmas_sq
         self.rng_key = new_rng_key
-        self.prev_state = int(current_state)
+        self.prev_state = int(state_for_selection)
         self.prev_action = int(action_idx)
         
         return C if action_idx == COOPERATE else D
