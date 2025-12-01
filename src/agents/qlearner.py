@@ -164,12 +164,13 @@ class JaxQLearner(Player):
     min_epsilon = 0.01
     decay_rate = 0.999
 
-    def __init__(self, learning_rate: float = 0.5, discount_rate: float = 0.9, action_selection_parameter: float = 0.1, memory_length: int = 1) -> None:
+    def __init__(self, learning_rate: float = 0.5, discount_rate: float = 0.9, action_selection_parameter: float = 0.1, memory_length: int = 1, decay_rate: float = 0.999) -> None:
         super().__init__()
         self.learning_rate = learning_rate
         self.discount_rate = discount_rate
         self.action_selection_parameter = action_selection_parameter
         self.memory_length = memory_length
+        self.decay_rate = decay_rate
         self.classifier["stochastic"] = True
         self.set_seed(0)
         self.init_state()
