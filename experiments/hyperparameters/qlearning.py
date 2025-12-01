@@ -24,15 +24,16 @@ random.seed(seed)
 learning_rates = [0.1, 0.5, 0.9]
 discount_rates = [0.1, 0.5, 0.9]
 action_selection_parameters = [0, 0.1]
+memory_lengths = [1, 2, 3, 4, 5]
 
 def run_search():
     # Create all combinations
-    combinations = list(itertools.product(learning_rates, discount_rates, action_selection_parameters))
+    combinations = list(itertools.product(learning_rates, discount_rates, action_selection_parameters, memory_lengths))
 
     for combination in combinations:
-        learning_rate, discount_rate, action_selection_parameter = combination
-        agent = JaxQLearner(learning_rate, discount_rate, action_selection_parameter)
-        agent.name = f"QLearner_{learning_rate}_{discount_rate}_{action_selection_parameter}"
+        learning_rate, discount_rate, action_selection_parameter, memory_length = combination
+        agent = JaxQLearner(learning_rate, discount_rate, action_selection_parameter, memory_length)
+        agent.name = f"QLearner_{learning_rate}_{discount_rate}_{action_selection_parameter}_{memory_length}"
         strats = [agent] + static_pool + learn_pool
         handler = FileSystemHandler(root_dir=f"results/hyperparameters/qlearning/{agent.name}")
         noise_tournament = NoiseTournament(
