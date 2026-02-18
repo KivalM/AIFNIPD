@@ -32,7 +32,7 @@ class FileSystemHandler:
         """
         _, _, _, csv_results_file = self._get_paths(config)
         if csv_results_file.exists():
-            # print(f"Skipping existing run: {csv_results_file}")
+            print(f"Skipping existing run: {csv_results_file}")
             return True
         return False
 

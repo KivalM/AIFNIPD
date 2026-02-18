@@ -37,8 +37,8 @@ import seaborn as sns
 from scipy import stats
 
 # Environment parameters
-noise_levels = list(np.arange(0, 0.15, 0.05).round(2))
-repetitions = 5
+noise_levels = list(np.arange(0, 0.10, 0.05).round(2))
+repetitions = 30
 turns = 1000
 processes = 10
 seed = 42
@@ -120,7 +120,7 @@ def run_experiment(strategies, opponents, dir_name):
     for game_name, game in games.items():
         print(f"\nRunning experiments for {game_name}...")
         for i, strategy in enumerate(strategies):
-            handler = FileSystemHandler(root_dir=f"results_updated_version/main/{game_name}")
+            handler = FileSystemHandler(root_dir=f"results/main/{game_name}/{dir_name}/{i}_{strategy.__class__.__name__}")
             noise_tournament = NoiseTournament(
                 players=[strategy] + opponents,
                 noise_levels=noise_levels,
