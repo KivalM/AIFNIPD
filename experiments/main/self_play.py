@@ -8,6 +8,7 @@ from tournament.handler import FileSystemHandler
 from tournament.tournament import NoiseTournament
 import multiprocessing
 from agents.aif.jax.aif import ActiveInferenceAgent
+from agents.aif.jax.epsilon_greedy import EpsilonGreedyAIFAgent
 from agents.bqlearner import JaxBayesianQLearner, CooperativeBQLearner
 from agents.qlearner import JaxQLearner, CooperativeQLearner
 from agents.psrl import PSRL, CooperativePSRL
@@ -115,6 +116,21 @@ strategies = [
         use_states_info_gain=False,
         use_param_info_gain=False,
     ),
+    # Epsilon-Greedy Active Inference
+    EpsilonGreedyAIFAgent(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        cooperative_preference=False,
+        policy_len=5,
+        update_interval=10,
+        seed=seed,
+        lr_B=1,
+        epsilon_start=0.5,
+        epsilon_decay=0.99,
+        epsilon_min=0.01,
+    ),
 ]
 
 # Define games
@@ -163,6 +179,7 @@ def analyze_results():
         7: 'AIF-S',
         8: 'AIF-S-U',
         9: 'AIF-S-N',
+        11: 'EpsAIF',
     }
 
     for game_name in games.keys():
