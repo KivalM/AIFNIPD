@@ -1,3 +1,9 @@
+from numpy import floating
+
+
+from typing import Any
+
+
 from tournament.handler import FileSystemHandler
 from tournament.tournament import NoiseTournament
 import multiprocessing
@@ -19,10 +25,10 @@ from experiments import (
 )
 
 # Environment parameters
-noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
-repetitions = 5
+noise_levels = list[floating[Any]](np.arange(0, 0.10, 0.05).round(2))
+repetitions = 30
 turns = 1000
-processes = 10
+processes = 30
 seed = 42
 
 strategies = [
@@ -51,6 +57,7 @@ strategies = [
         discount_rate=0.95,
         value_iteration_steps=50,
     ),
+    # Epistemic Active Inference
     ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
@@ -63,6 +70,7 @@ strategies = [
         lr_B=1,
         action_selection="deterministic",
     ),
+    # Utility Active Inference
     ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
@@ -77,6 +85,7 @@ strategies = [
         use_states_info_gain=False,
         use_param_info_gain=False,
     ),
+    # Noisy Epistemic Active Inference
     ActiveInferenceAgent(
         pB_scale=1,
         gamma=1,
@@ -89,6 +98,22 @@ strategies = [
         lr_B=1,
         action_selection="deterministic",
         use_noisy_observation_model=True,
+    ),
+    # Noisy Utility Active Inference
+    ActiveInferenceAgent(
+        pB_scale=1,
+        gamma=1,
+        alpha=1,
+        bias=0.5,
+        cooperative_preference=False,
+        policy_len=5,
+        update_interval=10,
+        seed=seed,
+        lr_B=1,
+        action_selection="deterministic",
+        use_noisy_observation_model=True,
+        use_states_info_gain=False,
+        use_param_info_gain=False,
     ),
 ]
 
