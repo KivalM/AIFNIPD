@@ -12,7 +12,7 @@ import random
 import tqdm
 
 # Environment parameters
-noise_levels = list(np.arange(0, 0.30, 0.05).round(2))
+noise_levels = list(np.arange(0, 0.10, 0.05).round(2))
 repetitions = 5
 turns = 1000
 processes = 16
@@ -23,9 +23,9 @@ random.seed(seed)
 # Agent parameters (18 Combinations)
 learning_rates = [0.1, 0.5, 0.9]
 discount_rates = [0.1, 0.5, 0.9]
-action_selection_parameters = [0, 0.1]
-memory_lengths = [1, 2, 3, 4, 5]
-decay_rates = [0.9, 0.99, 0.999]
+action_selection_parameters = [0, 0.05, 0.1]
+memory_lengths = [1]
+decay_rates = [0.9, 0.995, 0.999]
 
 def run_search():
     # Create all combinations

@@ -52,10 +52,13 @@ games = {
 }
 
 strategies = [
+    # QLearner_0.9_0.9_0.1_1_0.999
     JaxQLearner(
         learning_rate=0.9,
         discount_rate=0.9,
         action_selection_parameter=0.1,
+        memory_length=1,
+        decay_rate=0.999,
     ),
     JaxBayesianQLearner(
         discount_rate=0.5,

@@ -29,7 +29,7 @@ from experiments import (
 noise_levels = list[floating[Any]](np.arange(0, 0.10, 0.05).round(2))
 repetitions = 30
 turns = 1000
-processes = 30
+processes = 15
 seed = 42
 
 strategies = [
@@ -37,6 +37,8 @@ strategies = [
         learning_rate=0.9,
         discount_rate=0.9,
         action_selection_parameter=0.1,
+        memory_length=1,
+        decay_rate=0.999,
     ),
 
     JaxBayesianQLearner(
