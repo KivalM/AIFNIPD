@@ -13,9 +13,9 @@ import tqdm
 
 # Environment parameters
 noise_levels = list(np.arange(0, 0.50, 0.05).round(2))
-repetitions = 5
+repetitions = 1
 turns = 1000
-processes = 16
+processes = 25
 seed = 42
 np.random.seed(seed)
 random.seed(seed)
@@ -53,7 +53,7 @@ def run_search():
             use_noisy_observation_model=noisy_A_option,
         )
         agent.name = f"AIF_{pB_lr}_{c_preference}_{noisy_A_option}_{policy_len}_{update_interval}_{pB_scale}_{gamma}_{alpha}_{bias}"
-        strats = [agent] 
+        strats = [agent, axl.TitForTat()] 
         handler = FileSystemHandler(root_dir=f"results/paper/hyperparameters/aif/{agent.name}")
         noise_tournament = NoiseTournament(
             players=strats,
