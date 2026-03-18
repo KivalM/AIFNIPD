@@ -22,7 +22,7 @@ random.seed(seed)
 
 # Agent parameters (18 Combinations)
 pB_lrs = [1]
-c_preferences = ["nash"]
+c_preferences = [False]
 noisy_A_options = [False, True]
 policy_lens = [1, 3, 5, 10]
 update_intervals = [5, 10, 20, 50]
@@ -34,6 +34,20 @@ biases = [0.5]
 epsilon_starts = [0.5, 1.0]
 epsilon_decays = [0.99, 0.995, 0.999]
 epsilon_mins = [0.01]
+
+        # pB_scale=1,
+        # gamma=1,
+        # alpha=1,
+        # bias=0.5,
+        # cooperative_preference=False,
+        # policy_len=5,
+        # update_interval=10,
+        # seed=seed,
+        # lr_B=1,
+        # action_selection="deterministic",
+        # use_noisy_observation_model=True,
+        # use_states_info_gain=False,
+        # use_param_info_gain=False,
 
 def run_search():
     # Create all combinations
