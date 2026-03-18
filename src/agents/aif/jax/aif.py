@@ -187,6 +187,16 @@ def step(rng_key, agent, obs_idx, empirical_prior):
 
 
 @jit
+def step_with_diagnostics(rng_key, agent, obs_idx, empirical_prior):
+    qs = agent.infer_states(obs_idx, empirical_prior)
+    qpi, G, diagnostics = agent.infer_policies(qs, return_diagnostics=True)
+    rng_key = jr.split(rng_key)
+    action = agent.sample_action(qpi, rng_key=rng_key[1:])
+    empirical_prior, qs = agent.update_empirical_prior(action, qs)
+    return rng_key[0], obs_idx, empirical_prior, qs, action, qpi, G, diagnostics
+
+
+@jit
 def update_B(agent, beliefs, outcomes, actions, lr_B=1, pB_decay_rate=1.0):
     agent = agent.infer_parameters(beliefs, outcomes, actions, lr_B=lr_B)
     # Always apply decay (no-op when pB_decay_rate == 1.0)
@@ -337,6 +347,229 @@ class ActiveInferenceAgent(JointWrapper):
         self.step_count = 0
         self.empirical_prior = self.agent.D
         super().reset()
+
+
+class DiagnosticAIFAgent(ActiveInferenceAgent):
+    """ActiveInferenceAgent that captures per-timestep EFE decomposition.
+
+    At every step the agent records, for each possible first action (C or D),
+    the q_pi-weighted EFE components summed across the planning horizon:
+      - utility          (expected preference satisfaction)
+      - state_info_gain  (state information gain / salience)
+      - param_info_gain  (parameter information gain / novelty, B matrix only)
+      - total_neg_efe    (total negative EFE = sum of above)
+
+    Results are stored in ``self.efe_decomposition_history`` as a list of dicts,
+    one dict per timestep.
+    """
+
+    name = "DiagnosticAIFAgent"
+
+    def __init__(
+        self,
+        policy_len: int = 5,
+        update_interval: int = 10,
+        seed: int = 0,
+        lr_B: float = 1,
+        alpha: float = 1,
+        gamma: float = 1,
+        bias: float = 0.5,
+        cooperative_preference: bool = False,
+        pB_scale: float = 1,
+        action_selection: str = "deterministic",
+        use_utility: bool = True,
+        use_states_info_gain: bool = True,
+        use_param_info_gain: bool = True,
+        noise: float = 0.0,
+        use_noisy_observation_model: bool = False,
+        pB_decay_rate: float = 1.0,
+    ) -> None:
+        super().__init__(
+            policy_len=policy_len,
+            update_interval=update_interval,
+            seed=seed,
+            lr_B=lr_B,
+            alpha=alpha,
+            gamma=gamma,
+            bias=bias,
+            cooperative_preference=cooperative_preference,
+            pB_scale=pB_scale,
+            action_selection=action_selection,
+            use_utility=use_utility,
+            use_states_info_gain=use_states_info_gain,
+            use_param_info_gain=use_param_info_gain,
+            noise=noise,
+            use_noisy_observation_model=use_noisy_observation_model,
+            pB_decay_rate=pB_decay_rate,
+        )
+        self.efe_decomposition_history = []
+
+    def _extract_efe_decomposition(self, qpi, G, diagnostics):
+        """Summarise per-policy diagnostics into per-first-action EFE components.
+
+        The library computes:
+            step_neg_G = info_gain + utility
+                         - param_info_gain_a - param_info_gain_b
+                         + inductive_value
+
+        We store each term's *contribution* to neg_G so that:
+            utility + state_info_gain + param_info_gain == total_neg_efe
+        This means param_info_gain is stored as ``-(raw_pB + raw_pA)``
+        (the actual contribution to neg_G, not the raw KL value).
+
+        Parameters
+        ----------
+        qpi : jnp.ndarray, shape ``(batch, n_policies)``
+            Posterior over policies.
+        G : jnp.ndarray, shape ``(batch, n_policies)``
+            Neg-EFE per policy returned by ``infer_policies``.
+        diagnostics : dict
+            Per-policy, per-planning-step diagnostics from the library.
+            Scalar fields have shape ``(batch, n_policies, policy_len)``.
+        """
+        policies = self.agent.policies          # (n_policies, policy_len, n_factors)
+        n_policies = policies.shape[0]
+        pol_len    = policies.shape[1]
+
+        first_actions = policies[:, 0, 0]       # (n_policies,)
+
+        # --- shape assertions on diagnostics ---------------------------------
+        for key in ("utility", "info_gain", "param_info_gain_a",
+                    "param_info_gain_b", "step_neg_G"):
+            val = diagnostics[key]
+            assert val.shape == (1, n_policies, pol_len), (
+                f"diagnostics['{key}'] expected shape "
+                f"(1, {n_policies}, {pol_len}), got {val.shape}"
+            )
+
+        assert qpi.shape == (1, n_policies), (
+            f"qpi expected (1, {n_policies}), got {qpi.shape}"
+        )
+        assert G.shape == (1, n_policies), (
+            f"G expected (1, {n_policies}), got {G.shape}"
+        )
+
+        # --- assert clean partition: every policy starts with C or D ---------
+        assert jnp.all((first_actions == C) | (first_actions == D)), (
+            "Not all policies start with C(0) or D(1)"
+        )
+        n_c = int((first_actions == C).sum())
+        n_d = int((first_actions == D).sum())
+        assert n_c + n_d == n_policies, (
+            f"Partition error: {n_c} + {n_d} != {n_policies}"
+        )
+
+        # --- sum each diagnostic component across the planning horizon -------
+        # (batch=0, n_policies, policy_len) -> (n_policies,)
+        utility_per_pol     = diagnostics["utility"][0].sum(axis=-1)
+        info_gain_per_pol   = diagnostics["info_gain"][0].sum(axis=-1)
+        raw_pA_per_pol      = diagnostics["param_info_gain_a"][0].sum(axis=-1)
+        raw_pB_per_pol      = diagnostics["param_info_gain_b"][0].sum(axis=-1)
+        step_G_per_pol      = diagnostics["step_neg_G"][0].sum(axis=-1)
+
+        # The *contribution* of param info gain to neg_G is -(pA + pB).
+        param_contrib_per_pol = -(raw_pA_per_pol + raw_pB_per_pol)
+
+        # --- cross-check: sum of step_neg_G == G from infer_policies ---------
+        G_batch0 = G[0]                         # (n_policies,)
+        assert jnp.allclose(step_G_per_pol, G_batch0, atol=1e-4), (
+            "sum(step_neg_G, horizon) != G  "
+            f"max diff = {float(jnp.max(jnp.abs(step_G_per_pol - G_batch0)))}"
+        )
+
+        # --- cross-check: components add up to step_neg_G -------------------
+        reconstructed = info_gain_per_pol + utility_per_pol + param_contrib_per_pol
+        assert jnp.allclose(reconstructed, step_G_per_pol, atol=1e-4), (
+            "utility + info_gain - (pA + pB) != step_neg_G  "
+            f"max diff = {float(jnp.max(jnp.abs(reconstructed - step_G_per_pol)))}"
+        )
+
+        # --- aggregate by first action (q_pi-weighted mean) -----------------
+        q_pi = qpi[0]                           # (n_policies,)
+
+        result = {}
+        for action_idx, action_label in ((C, "C"), (D, "D")):
+            mask = (first_actions == action_idx)
+            masked_q = jnp.where(mask, q_pi, 0.0)
+            total_q  = masked_q.sum()
+            safe_total_q = jnp.where(total_q > 0, total_q, 1.0)
+
+            def weighted_mean(vals, _mq=masked_q, _sq=safe_total_q):
+                return (_mq * vals).sum() / _sq
+
+            u  = float(weighted_mean(utility_per_pol))
+            si = float(weighted_mean(info_gain_per_pol))
+            pi = float(weighted_mean(param_contrib_per_pol))
+            total = float(weighted_mean(step_G_per_pol))
+
+            assert abs(u + si + pi - total) < 1e-4, (
+                f"action={action_label}: u({u}) + si({si}) + pi({pi}) "
+                f"= {u + si + pi} != total({total})"
+            )
+
+            result[action_label] = {
+                "utility":         u,
+                "state_info_gain": si,
+                "param_info_gain": pi,
+                "total_neg_efe":   total,
+            }
+
+        # --- marginal action probabilities -----------------------------------
+        c_mask = (first_actions == C)
+        d_mask = (first_actions == D)
+        q_pi_C = float(jnp.where(c_mask, q_pi, 0.0).sum())
+        q_pi_D = float(jnp.where(d_mask, q_pi, 0.0).sum())
+
+        assert abs(q_pi_C + q_pi_D - 1.0) < 1e-4, (
+            f"q_pi_C({q_pi_C}) + q_pi_D({q_pi_D}) = {q_pi_C + q_pi_D} != 1.0"
+        )
+
+        result["q_pi_C"] = q_pi_C
+        result["q_pi_D"] = q_pi_D
+        return result
+
+    def step(self, state: Tuple[Optional[Action], Optional[Action]]) -> Action:
+        obs_idx = None
+        if state[0] is None and state[1] is None:
+            obs_idx = [jnp.broadcast_to(jnp.array([START]), (1, 1))]
+        else:
+            obs_idx = [action_pair_to_obs(state[0].value, state[1].value)]
+
+        self.rng_key = jr.split(self.rng_key)[1]
+        rng_key, obs_idx, empirical_prior, qs, action, qpi, G, diagnostics = step_with_diagnostics(
+            self.rng_key, self.agent, obs_idx, self.empirical_prior
+        )
+        self.empirical_prior = empirical_prior
+
+        # Record EFE decomposition for this timestep
+        decomp = self._extract_efe_decomposition(qpi, G, diagnostics)
+        self.efe_decomposition_history.append(decomp)
+
+        self.qs.append(qs)
+        self.obs.append(obs_idx)
+        self.actions.append(action)
+        self.step_count += 1
+
+        if self.step_count >= self.update_interval and len(self.actions) >= self.update_interval and len(self.qs) >= self.update_interval + 1:
+            qs_arr = jnp.array([q for q in self.qs])
+            obs_arr = jnp.array([o for o in self.obs])
+            act_arr = jnp.array([a for a in self.actions])
+
+            beliefs = [qs_arr.reshape(n_batches, len(self.qs), num_states)]
+            outcomes = obs_arr.reshape(n_batches, len(self.obs))
+            actions = act_arr[:-1].reshape(n_batches, len(self.actions) - 1, 1)
+
+            self.agent = update_B(
+                self.agent, beliefs, outcomes, actions,
+                lr_B=self.lr_B, pB_decay_rate=self.pB_decay_rate
+            )
+            self.step_count = 0
+
+        return Action.C if action[0][0] == C else Action.D
+
+    def reset(self) -> None:
+        super().reset()
+        self.efe_decomposition_history = []
 
 
 ### Utility Functions

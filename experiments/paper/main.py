@@ -158,10 +158,7 @@ def run_experiment_4():
     noise_tournament.run(turns=turns, processes=processes)
     print(f"Results are saved in the '{handler.root_dir}' directory.")
 
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    
-    # Run experiments
-    run_experiment(strategies, static_pool, "static")
-    run_experiment(strategies, learn_pool, "learning")
     

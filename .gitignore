@@ -11,3 +11,5 @@ wheels/
 results.25.11.zip
 experiments/other/memory_n_bql/scores_final.csv
 experiments/other/memory_n_ql/scores_final.csv
+results_longer_traj.zip
+results.zip
